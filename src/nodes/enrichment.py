@@ -5,6 +5,7 @@ import time
 from src.models.state import LeadState
 from src.models.schemas import HunterContact
 from src.services.hunter_service import get_hunter_service
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,18 @@ async def enrichment_node(state: LeadState) -> dict:
         if not registry_data:
             raise ValueError("No registry data available for enrichment")
 
+        website_url = state.get("website_url") or registry_data.official_website_url
+        if not website_url:
+            raise ValueError("No website URL available for Hunter.io domain enrichment")
+
         # Derive domain from business name or use known domain
         business_name = registry_data.business_name or ""
         owner_name = registry_data.owner_name or ""
 
         # Simple domain derivation (in production, would be more sophisticated)
-        domain = f"{business_name.lower().replace(' ', '')}.com"
+        domain = urlparse(website_url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
         execution_log.append(f"Searching Hunter.io for domain: {domain}")
         logger.info(f"Hunter.io search for: {domain}")
 

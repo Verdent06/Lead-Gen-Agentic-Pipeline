@@ -40,13 +40,13 @@ async def web_crawler_node(state: LeadState) -> dict:
     try:
         # Get website URL from state or registry data
         website_url = state.get("website_url")
-        if not website_url and state.get("registry_data"):
-            # Try to derive from business name
-            business_name = state.get("business_name", "").lower().replace(" ", "")
-            website_url = f"https://www.{business_name}.com"
+        registry_data = state.get("registry_data")
 
+        if not website_url and registry_data and registry_data.official_website_url:
+            website_url = registry_data.official_website_url
+            
         if not website_url:
-            raise ValueError("No website URL available to crawl")
+            raise ValueError("No valid website URL found in State or Registry Data. Cannot crawl.")
 
         logger.info(f"Crawling website: {website_url}")
         execution_log.append(f"Crawling website: {website_url}")

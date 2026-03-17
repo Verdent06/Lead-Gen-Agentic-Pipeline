@@ -15,6 +15,10 @@ class RegistryVerification(BaseModel):
     dba_names: Optional[List[str]] = Field(
         default=None, description="Doing Business As names if available"
     )
+    
+    official_website_url: Optional[str] = Field(
+        default=None, description="The official company website URL if found in search results. Do NOT guess this. Only include if explicitly found."
+    )
 
     registry_status: Literal["active", "inactive", "suspended", "dissolved"] = Field(
         ..., description="Current business status in state registry"
