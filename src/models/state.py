@@ -1,6 +1,7 @@
 """Global state definition for the LangGraph pipeline."""
 
-from typing import TypedDict, Optional, List, Any, Dict
+import operator
+from typing import TypedDict, Optional, List, Any, Dict, Annotated
 from src.models.schemas import (
     RegistryVerification,
     WebsiteSignals,
@@ -86,8 +87,9 @@ class LeadState(TypedDict, total=False):
     """Error message if enrichment failed"""
 
     # === Execution Metadata ===
-    execution_log: List[str]
-    """Chronological log of node execution steps and decisions"""
+    execution_log: Annotated[List[str], operator.add]
+    """Chronological log of node execution steps and decisions.
+    Uses operator.add reducer to append entries instead of overwriting."""
 
     node_timestamps: Dict[str, float]
     """Execution timestamps for each node (for performance tracking)"""
@@ -95,8 +97,9 @@ class LeadState(TypedDict, total=False):
     total_tokens_used: Optional[int]
     """Cumulative token usage across all LLM calls"""
 
-    errors_encountered: List[str]
-    """Collected errors that did not halt execution"""
+    errors_encountered: Annotated[List[str], operator.add]
+    """Collected errors that did not halt execution.
+    Uses operator.add reducer to append errors instead of overwriting."""
 
     should_continue: bool
     """Flag for conditional edge routing (set by nodes to control graph flow)"""
