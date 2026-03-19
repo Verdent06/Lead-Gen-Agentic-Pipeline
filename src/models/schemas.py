@@ -1,7 +1,7 @@
 """Pydantic schemas for strict LLM output validation."""
 
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, HttpUrl
 
 
 class RegistryVerification(BaseModel):
@@ -20,19 +20,19 @@ class RegistryVerification(BaseModel):
         default=None, description="The official company website URL if found in search results. Do NOT guess this. Only include if explicitly found."
     )
 
-    registry_status: Literal["active", "inactive", "suspended", "dissolved"] = Field(
-        ..., description="Current business status in state registry"
+    registry_status: Optional[str] = Field(
+        default="unknown", description="Current business status in state registry"
     )
 
     registry_url: Optional[str] = Field(
         default=None, description="Direct link to registry record"
     )
 
-    business_address: str = Field(..., description="Physical address from registry")
+    business_address: Optional[str] = Field(default=None, description="Physical address from registry")
 
-    city: str
-    state: str
-    zip_code: str
+    city: Optional[str] = Field(default=None)
+    state: Optional[str] = Field(default=None)
+    zip_code: Optional[str] = Field(default=None)
 
     incorporation_date: Optional[str] = Field(
         default=None, description="Date business was incorporated/registered (YYYY-MM-DD)"
@@ -63,6 +63,22 @@ class RegistryVerification(BaseModel):
     def normalize_status(cls, v):
         """Normalize status to lowercase."""
         return v.lower() if isinstance(v, str) else v
+
+
+class WebsiteDiscovery(BaseModel):
+    """
+    Lightweight schema for fallback website URL discovery (Node 1 secondary search).
+    Used when initial registry search doesn't include company website.
+    """
+
+    website_url: Optional[str] = Field(
+        default=None,
+        description="Official company website URL. Only include if explicitly found in search results. Do NOT guess or invent URLs.",
+    )
+
+    notes: Optional[str] = Field(
+        default=None, description="Any relevant notes about the URL search"
+    )
 
 
 class SignalCategory(BaseModel):
@@ -139,6 +155,10 @@ class WebsiteSignals(BaseModel):
 
     owner_name_from_site: Optional[str] = Field(
         default=None, description="Owner/CEO name if mentioned on website"
+    )
+
+    business_name_from_site: Optional[str] = Field(
+        default=None, description="Business name as stated on website (for name matching)"
     )
 
     owner_email_from_site: Optional[str] = Field(

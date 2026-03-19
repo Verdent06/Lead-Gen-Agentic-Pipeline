@@ -2,6 +2,7 @@
 from src.models.state import LeadState
 from src.models.schemas import (
     RegistryVerification,
+    WebsiteDiscovery,
     WebsiteSignals,
     ConsensusResult,
     HunterContact,
@@ -11,6 +12,7 @@ from src.models.schemas import (
 __all__ = [
     "LeadState",
     "RegistryVerification",
+    "WebsiteDiscovery",
     "WebsiteSignals",
     "ConsensusResult",
     "HunterContact",

@@ -8,6 +8,15 @@ from src.models.state import LeadState
 from src.models.schemas import FinalLeadOutput
 from src.graph import build_graph
 from src.config import Config
+from pydantic import BaseModel, Field
+from typing import List
+
+class DiscoveredBusiness(BaseModel):
+    business_name: str = Field(..., description="The name of the business")
+    location: str = Field(..., description="The location (city, state) of the business")
+
+class BusinessList(BaseModel):
+    businesses: List[DiscoveredBusiness] = Field(..., description="List of discovered businesses")
 
 # Configure logging
 logging.basicConfig(
@@ -141,47 +150,107 @@ async def run_sourcing_agent(
         )
 
 
-async def main():
-    """Main entry point with example query."""
-    # Example query
-    example_query = "Find independent HVAC distributors in Ohio that do not have e-commerce"
-    example_business = "Smith HVAC Distributors"
-    example_location = "Cleveland, Ohio"
-
-    # Run the agent
-    result = await run_sourcing_agent(
-        query=example_query,
-        business_name=example_business,
-        location=example_location,
+async def discover_businesses(macro_query: str) -> List[DiscoveredBusiness]:
+    """Use Tavily and LLM to find a list of businesses matching the macro-query."""
+    from src.services.tavily_service import get_tavily_service
+    from src.services.llm_service import get_llm_service
+    
+    logger.info(f"Running batch discovery for macro-query: {macro_query}")
+    tavily = await get_tavily_service()
+    llm = await get_llm_service()
+    
+    # Search Tavily
+    search_results = await tavily.search(
+        query=macro_query,
+        include_answer=True,
+        num_results=10,
+        topic="general"
     )
+    
+    # Format results for LLM
+    context = "Tavily Search Results:\n"
+    if search_results.get("answer"):
+        context += f"Summary: {search_results['answer']}\n\n"
+    
+    for i, res in enumerate(search_results.get("results", [])):
+        context += f"Result {i+1}:\nTitle: {res.get('title')}\nContent: {res.get('content')}\n\n"
+        
+    prompt = f"""Extract all real businesses mentioned in the search results that match the query: '{macro_query}'.
+For each business, extract:
+- Business name (exact name from the results)
+- Location (city, state or country)
 
-    # Print results
+Return the data strictly matching the requested JSON schema.
+Do not return raw arrays - return the exact JSON object structure specified in the schema."""
+    
+    extracted = await llm.extract_structured(
+        prompt=prompt,
+        response_model=BusinessList,
+        context=context
+    )
+    
+    if extracted and extracted.businesses:
+        logger.info(f"Discovered {len(extracted.businesses)} businesses.")
+        return extracted.businesses
+    else:
+        logger.warning("No businesses discovered or extraction failed.")
+        return []
+
+async def run_batch_pipeline(macro_query: str):
+    """Run the pipeline concurrently for a list of discovered businesses."""
+    businesses = await discover_businesses(macro_query)
+    
+    if not businesses:
+        logger.error("No businesses found to process.")
+        return []
+        
+    logger.info(f"Starting concurrent processing for {len(businesses)} businesses...")
+    
+    # Create tasks for each business
+    tasks = []
+    for biz in businesses:
+        # Pass the macro_query as the query context for each run
+        task = run_sourcing_agent(
+            query=macro_query,
+            business_name=biz.business_name,
+            location=biz.location
+        )
+        tasks.append(task)
+        
+    # Execute all tasks concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results
+    successful_results = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(f"Pipeline failed for {businesses[i].business_name}: {result}")
+        else:
+            successful_results.append(result)
+            
+    return successful_results
+
+async def main():
+    """Main entry point with batch query."""
+    macro_query = "Find independent HVAC distributors in Ohio that do not have e-commerce"
+    
+    # Run the batch agent
+    results = await run_batch_pipeline(macro_query)
+    
+    # Print summary
     print("\n" + "=" * 70)
-    print("FINAL LEAD OUTPUT")
+    print(f"BATCH PROCESSING COMPLETE: {len(results)} businesses processed")
     print("=" * 70)
-    print(f"Business: {result.business_name}")
-    print(f"Location: {result.location}")
-    print(f"Lead Score: {result.lead_score}/100")
-    print(f"Passed Consensus: {result.passed_consensus}")
-    print(f"Recommendation: {result.recommendation}")
-
-    if result.primary_contact:
-        print(f"\nPrimary Contact:")
-        print(f"  Name: {result.primary_contact.first_name} {result.primary_contact.last_name}")
-        print(f"  Email: {result.primary_contact.email}")
-        print(f"  Title: {result.primary_contact.job_title}")
-
-    print(f"\nExecution Time: {result.execution_time_seconds:.2f}s")
-    print(f"Errors: {len(result.errors_encountered)}")
-
-    if result.execution_log:
-        print(f"\nExecution Log ({len(result.execution_log)} entries):")
-        for i, log_entry in enumerate(result.execution_log[:5], 1):
-            print(f"  {i}. {log_entry}")
-        if len(result.execution_log) > 5:
-            print(f"  ... and {len(result.execution_log) - 5} more")
-
-    return result
+    
+    for result in results:
+        print(f"\nBusiness: {result.business_name}")
+        print(f"Location: {result.location}")
+        print(f"Lead Score: {result.lead_score}/100")
+        print(f"Passed Consensus: {result.passed_consensus}")
+        print(f"Recommendation: {result.recommendation}")
+        print("-" * 40)
+        
+    return results
 
 
 if __name__ == "__main__":

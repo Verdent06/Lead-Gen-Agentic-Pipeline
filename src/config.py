@@ -4,16 +4,23 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv('.env.local')
 
 
 class Config:
     """Application configuration from environment variables."""
 
-    # API Keys
+    # LLM Provider (ollama or google)
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+
+    # API Keys (for Gemini/Google)
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
     HUNTER_API_KEY: str = os.getenv("HUNTER_API_KEY", "")
+
+    # Local Ollama Configuration
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
 
     # LLM Configuration
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
@@ -31,9 +38,16 @@ class Config:
     @classmethod
     def validate(cls) -> None:
         """Validate that all required config is present."""
+        # If using Ollama locally, no API keys needed
+        if cls.LLM_PROVIDER == "ollama":
+            return
+
+        # If using Google Gemini, require API key or mocks
         if not cls.GOOGLE_API_KEY and not cls.USE_MOCKS:
             raise ValueError("GOOGLE_API_KEY is required or USE_MOCKS must be true")
+
         if not cls.TAVILY_API_KEY and not cls.USE_MOCKS:
             raise ValueError("TAVILY_API_KEY is required or USE_MOCKS must be true")
         if not cls.HUNTER_API_KEY and not cls.USE_MOCKS:
             raise ValueError("HUNTER_API_KEY is required or USE_MOCKS must be true")
+

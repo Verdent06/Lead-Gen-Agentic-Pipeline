@@ -1,9 +1,10 @@
-"""Google Gemini LLM service with structured output support."""
+"""LLM service with support for multiple providers (Gemini, Ollama)."""
 
 import json
 from typing import Type, TypeVar, Optional
 import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from pydantic import BaseModel
 from src.config import Config
 
@@ -13,16 +14,28 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMService:
-    """Wrapper for Google Gemini API with Pydantic schema enforcement."""
+    """Wrapper for LLM API with Pydantic schema enforcement (Gemini or Ollama)."""
 
     def __init__(self):
-        """Initialize Gemini LLM client."""
+        """Initialize LLM client based on configured provider."""
         Config.validate()
-        self.client = ChatGoogleGenerativeAI(
-            model=Config.LLM_MODEL,
-            temperature=Config.LLM_TEMPERATURE,
-            google_api_key=Config.GOOGLE_API_KEY,
-        )
+        
+        if Config.LLM_PROVIDER == "ollama":
+            logger.info(f"Initializing Ollama LLM at {Config.OLLAMA_BASE_URL} (model: {Config.OLLAMA_MODEL})")
+            self.client = ChatOllama(
+                model=Config.OLLAMA_MODEL,
+                base_url=Config.OLLAMA_BASE_URL,
+                temperature=Config.LLM_TEMPERATURE,
+            )
+        else:  # Default to Google Gemini
+            logger.info(f"Initializing Google Gemini (model: {Config.LLM_MODEL})")
+            self.client = ChatGoogleGenerativeAI(
+                model=Config.LLM_MODEL,
+                temperature=Config.LLM_TEMPERATURE,
+                google_api_key=Config.GOOGLE_API_KEY,
+            )
+        
+        self.provider = Config.LLM_PROVIDER
 
     async def extract_structured(
         self,
@@ -31,7 +44,9 @@ class LLMService:
         context: str = "",
     ) -> Optional[T]:
         """
-        Extract structured data from prompt using Gemini with Pydantic validation.
+        Extract structured data from prompt with Pydantic validation.
+        
+        Uses .with_structured_output() for direct schema enforcement.
 
         Args:
             prompt: The user prompt
@@ -46,10 +61,20 @@ class LLMService:
             return self._mock_response(response_model)
 
         try:
+            # Get the JSON schema for the response model
+            schema_dict = response_model.model_json_schema()
+            schema_string = json.dumps(schema_dict, indent=2)
+
             # Construct system prompt for structured extraction
             system_prompt = f"""You are an expert data extraction agent.
-Extract information from the provided content and return it in the specified JSON format.
-Ensure all fields are validated and match the schema.
+Extract information from the provided content and return it in VALID JSON format.
+You MUST return a JSON object that strictly adheres to the following JSON schema:
+
+{schema_string}
+
+Ensure all fields are validated and match the schema exactly.
+Do not return an array unless the schema explicitly specifies an array type.
+Return ONLY valid JSON with no markdown code blocks, no explanations, no additional text.
 
 {context}"""
 
@@ -58,33 +83,20 @@ Ensure all fields are validated and match the schema.
 Content to extract from:
 {prompt}"""
 
-            # Use Gemini with structured output
-            response = await self.client.ainvoke(full_prompt)
-
-            # Parse JSON from response
-            content = response.content if hasattr(response, "content") else str(response)
-
-            # Extract JSON from markdown code blocks if present
-            if "```json" in content:
-                json_str = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                json_str = content.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = content
-
-            extracted_json = json.loads(json_str)
-            result = response_model.model_validate(extracted_json)
+            # Use LLM with structured output
+            # .with_structured_output() enforces schema directly, bypassing string parsing
+            llm_with_schema = self.client.with_structured_output(response_model)
+            result = await llm_with_schema.ainvoke(full_prompt)
+            
             logger.info(f"Successfully extracted {response_model.__name__}")
             return result
 
         except Exception as e:
-            logger.error(f"Failed to extract {response_model.__name__}: {e}")
+            logger.error(f"Failed to extract {response_model.__name__}: {e}", exc_info=True)
             return None
 
     def _mock_response(self, response_model: Type[T]) -> T:
         """Generate mock response matching Pydantic schema (for testing)."""
-        # This would be populated with real mock data in actual implementation
-        # For now, return a basic instance
         try:
             # Try to create with no args (schema-dependent)
             return response_model()

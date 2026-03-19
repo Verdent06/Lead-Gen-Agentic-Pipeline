@@ -1,6 +1,7 @@
 langgraph==0.1.34
 pydantic==2.6.3
 langchain-google-genai==1.0.1
+langchain-ollama==0.1.0
 google-generativeai==0.4.0
 crawl4ai==0.3.0
 tavily-python==0.1.0

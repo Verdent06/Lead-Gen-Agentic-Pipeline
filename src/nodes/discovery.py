@@ -3,7 +3,7 @@
 import logging
 import time
 from src.models.state import LeadState
-from src.models.schemas import RegistryVerification
+from src.models.schemas import RegistryVerification, WebsiteDiscovery
 from src.services.tavily_service import get_tavily_service
 from src.services.llm_service import get_llm_service
 
@@ -86,6 +86,56 @@ Details:
         if registry_data:
             execution_log.append(f"Registry verification: {registry_data.registry_status}")
             logger.info(f"Business status: {registry_data.registry_status}")
+
+            # === FALLBACK: Search for website URL if not found in registry search ===
+            if not registry_data.official_website_url:
+                logger.info("Website URL not found in registry search. Attempting fallback website search...")
+                execution_log.append("Website URL missing - attempting fallback search")
+
+                try:
+                    # Perform targeted website search
+                    website_search_query = f"{business_name} {location} official website"
+                    website_search_results = await tavily_service.search(
+                        query=website_search_query,
+                        include_answer=True,
+                        num_results=5,
+                        topic="general",
+                    )
+
+                    execution_log.append(
+                        f"Fallback search completed with {len(website_search_results.get('results', []))} results"
+                    )
+
+                    # Format website search results for LLM
+                    website_search_text = f"""
+Find the official website URL for: {business_name} located in {location}
+
+Search Results:
+{website_search_results.get('answer', '')}
+
+Details:
+"""
+                    for idx, result in enumerate(website_search_results.get("results", [])[:5], 1):
+                        website_search_text += f"\n{idx}. {result.get('title', '')}\n{result.get('content', '')}"
+
+                    # Extract website URL using lightweight schema
+                    website_discovery = await llm_service.extract_structured(
+                        prompt=website_search_text,
+                        response_model=WebsiteDiscovery,
+                        context="Extract only the official company website URL if clearly found. Do NOT guess or invent URLs.",
+                    )
+
+                    if website_discovery and website_discovery.website_url:
+                        registry_data.official_website_url = website_discovery.website_url
+                        execution_log.append(f"Website URL found in fallback search: {website_discovery.website_url}")
+                        logger.info(f"Website URL recovered: {website_discovery.website_url}")
+                    else:
+                        execution_log.append("Fallback search: No website URL could be extracted")
+                        logger.warning("Website URL still not found after fallback search")
+
+                except Exception as fallback_error:
+                    logger.warning(f"Fallback website search failed: {fallback_error}")
+                    execution_log.append(f"Fallback search error: {fallback_error}")
 
             # Determine if should continue to next node
             should_continue = registry_data.registry_status == "active"

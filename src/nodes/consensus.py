@@ -88,7 +88,7 @@ async def consensus_node(state: LeadState) -> dict:
 
         # === STEP 1: Name Matching ===
         registry_name = registry_data.business_name or ""
-        website_name = extracted_signals.owner_name_from_site or registry_data.business_name or ""
+        website_name = extracted_signals.business_name_from_site or registry_data.business_name or ""
 
         name_match = fuzzy_match(registry_name, website_name)
         logger.info(f"Name match: {registry_name} vs {website_name} = {name_match:.2f}")
