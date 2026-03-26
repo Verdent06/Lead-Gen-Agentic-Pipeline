@@ -39,20 +39,36 @@ async def enrichment_node(state: LeadState) -> dict:
         if not registry_data:
             raise ValueError("No registry data available for enrichment")
 
+        # Extract and validate website URL
         website_url = state.get("website_url") or registry_data.official_website_url
         if not website_url:
             raise ValueError("No website URL available for Hunter.io domain enrichment")
 
-        # Derive domain from business name or use known domain
-        business_name = registry_data.business_name or ""
-        owner_name = registry_data.owner_name or ""
-
-        # Simple domain derivation (in production, would be more sophisticated)
-        domain = urlparse(website_url).netloc.lower()
+        # Defensive domain extraction
+        website_url = website_url.strip()
+        
+        # Prepend schema if missing
+        if not website_url.startswith(("http://", "https://")):
+            website_url = f"https://{website_url}"
+        
+        # Extract domain from URL
+        parsed_url = urlparse(website_url)
+        domain = parsed_url.netloc.lower()
+        
+        # Strip www. prefix if present
         if domain.startswith("www."):
             domain = domain[4:]
+        
+        # Safety check: ensure we have a valid domain
+        if not domain:
+            raise ValueError(f"Could not extract valid domain from URL: {website_url}")
+        
         execution_log.append(f"Searching Hunter.io for domain: {domain}")
         logger.info(f"Hunter.io search for: {domain}")
+
+        # Get business and owner information
+        business_name = registry_data.business_name or ""
+        owner_name = registry_data.owner_name or ""
 
         # Call Hunter service
         hunter_service = await get_hunter_service()

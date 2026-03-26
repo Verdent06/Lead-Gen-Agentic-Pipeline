@@ -17,7 +17,7 @@ class RegistryVerification(BaseModel):
     )
     
     official_website_url: Optional[str] = Field(
-        default=None, description="The official company website URL if found in search results. Do NOT guess this. Only include if explicitly found."
+        default=None, description="The official company website URL if found in search results."
     )
 
     registry_status: Optional[str] = Field(

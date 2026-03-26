@@ -20,7 +20,7 @@ class Config:
 
     # Local Ollama Configuration
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8B")
 
     # LLM Configuration
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
