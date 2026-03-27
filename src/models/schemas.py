@@ -165,6 +165,10 @@ class WebsiteSignals(BaseModel):
         default=None, description="Owner email if publicly listed"
     )
 
+    new_domain_redirect: Optional[str] = Field(
+        default=None, description="If website states domain has moved, the new domain URL"
+    )
+
     years_in_business: Optional[int] = Field(
         default=None, description="Business vintage/age if stated on site"
     )

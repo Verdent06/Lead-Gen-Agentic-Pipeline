@@ -74,6 +74,7 @@ Look for:
 5. Business size indicators from content
 6. Contact information and owner details
 7. Team size indicators
+8. Domain Redirect: If this page clearly states the website has moved to a new domain, extract the new URL.
 
 Website Content (Markdown):
 ---
