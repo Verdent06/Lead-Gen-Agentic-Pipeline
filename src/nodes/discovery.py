@@ -25,7 +25,10 @@ async def discovery_node(state: LeadState) -> dict:
         Updated state dict with registry verification results
     """
     start_time = time.time()
-    logger.info("=== Node 1: Discovery & Registry Verification ===")
+    
+    # Extract business name for logging
+    business_name = state.get("business_name", "Unknown")
+    logger.info(f"\n----------------------------------------\n[{business_name}] === Node 1: Discovery & Registry Verification ===")
 
     execution_log = state.get("execution_log", [])
     registry_search_query = None
@@ -36,7 +39,6 @@ async def discovery_node(state: LeadState) -> dict:
     try:
         # Extract input parameters
         query = state.get("query", "")
-        business_name = state.get("business_name", "")
         location = state.get("location", "")
 
         if not business_name or not location:
@@ -44,7 +46,7 @@ async def discovery_node(state: LeadState) -> dict:
 
         # Construct refined search query
         registry_search_query = f"{business_name} {location} state licensing registry active business"
-        logger.info(f"Searching for: {registry_search_query}")
+        logger.info(f"[{business_name}] Searching for: {registry_search_query}")
 
         # Perform Tavily search
         tavily_service = await get_tavily_service()
@@ -85,11 +87,11 @@ Details:
 
         if registry_data:
             execution_log.append(f"Registry verification: {registry_data.registry_status}")
-            logger.info(f"Business status: {registry_data.registry_status}")
+            logger.info(f"[{business_name}] Business status: {registry_data.registry_status}")
 
             # === FALLBACK: Search for website URL if not found in registry search ===
             if not registry_data.official_website_url:
-                logger.info("Website URL not found in registry search. Attempting fallback website search...")
+                logger.info(f"[{business_name}] Website URL not found in registry search. Attempting fallback website search...")
                 execution_log.append("Website URL missing - attempting fallback search")
 
                 try:
@@ -128,13 +130,13 @@ Details:
                     if website_discovery and website_discovery.website_url:
                         registry_data.official_website_url = website_discovery.website_url
                         execution_log.append(f"Website URL found in fallback search: {website_discovery.website_url}")
-                        logger.info(f"Website URL recovered: {website_discovery.website_url}")
+                        logger.info(f"[{business_name}] Website URL recovered: {website_discovery.website_url}")
                     else:
                         execution_log.append("Fallback search: No website URL could be extracted")
-                        logger.warning("Website URL still not found after fallback search")
+                        logger.warning(f"[{business_name}] Website URL still not found after fallback search")
 
                 except Exception as fallback_error:
-                    logger.warning(f"Fallback website search failed: {fallback_error}")
+                    logger.warning(f"[{business_name}] Fallback website search failed: {fallback_error}")
                     execution_log.append(f"Fallback search error: {fallback_error}")
 
             # Determine if should continue to next node
@@ -149,12 +151,12 @@ Details:
             should_continue = False
 
     except Exception as e:
-        logger.error(f"Node 1 error: {e}", exc_info=True)
+        logger.error(f"[{business_name}] Node 1 error: {e}", exc_info=True)
         execution_log.append(f"Node 1 error: {e}")
         should_continue = False
 
     elapsed = time.time() - start_time
-    logger.info(f"Node 1 completed in {elapsed:.2f}s")
+    logger.info(f"[{business_name}] Node 1 completed in {elapsed:.2f}s")
 
     return {
         "registry_data": registry_data,

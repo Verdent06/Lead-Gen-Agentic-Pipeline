@@ -30,7 +30,10 @@ async def web_crawler_node(state: LeadState) -> dict:
         Updated state dict with website signals
     """
     start_time = time.time()
-    logger.info("=== Node 2: Web Crawler & Signal Extraction ===")
+    
+    # Extract business name for logging
+    business_name = state.get("business_name", "Unknown")
+    logger.info(f"\n----------------------------------------\n[{business_name}] === Node 2: Web Crawler & Signal Extraction ===")
 
     execution_log = state.get("execution_log", [])
     website_markdown = None
@@ -48,7 +51,7 @@ async def web_crawler_node(state: LeadState) -> dict:
         if not website_url:
             raise ValueError("No valid website URL found in State or Registry Data. Cannot crawl.")
 
-        logger.info(f"Crawling website: {website_url}")
+        logger.info(f"[{business_name}] Crawling website: {website_url}")
         execution_log.append(f"Crawling website: {website_url}")
 
         # Crawl website and convert to Markdown
@@ -59,7 +62,7 @@ async def web_crawler_node(state: LeadState) -> dict:
             raise ValueError(f"Failed to crawl {website_url}")
 
         execution_log.append(f"Website successfully converted to Markdown ({len(website_markdown)} chars)")
-        logger.info(f"Website Markdown extracted ({len(website_markdown)} characters)")
+        logger.info(f"[{business_name}] Website Markdown extracted ({len(website_markdown)} characters)")
 
         # Extract signals using LLM with strict Pydantic validation
         llm_service = await get_llm_service()
@@ -101,16 +104,16 @@ For each signal, provide:
             )
             website_crawl_success = True
         else:
-            logger.warning("Signal extraction returned None")
+            logger.warning(f"[{business_name}] Signal extraction returned None")
             website_crawl_success = False
 
     except Exception as e:
-        logger.error(f"Node 2 error: {e}", exc_info=True)
+        logger.error(f"[{business_name}] Node 2 error: {e}", exc_info=True)
         execution_log.append(f"Node 2 error: {e}")
         website_crawl_success = False
 
     elapsed = time.time() - start_time
-    logger.info(f"Node 2 completed in {elapsed:.2f}s")
+    logger.info(f"[{business_name}] Node 2 completed in {elapsed:.2f}s")
 
     return {
         "website_markdown": website_markdown,

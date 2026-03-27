@@ -25,7 +25,10 @@ async def enrichment_node(state: LeadState) -> dict:
         Updated state dict with enriched contacts
     """
     start_time = time.time()
-    logger.info("=== Node 4: Enrichment ===")
+    
+    # Extract business name for logging
+    business_name_state = state.get("business_name", "Unknown")
+    logger.info(f"\n----------------------------------------\n[{business_name_state}] === Node 4: Enrichment ===")
 
     execution_log = state.get("execution_log", [])
     enriched_contacts = []
@@ -47,7 +50,7 @@ async def enrichment_node(state: LeadState) -> dict:
         # === CHECK FOR DOMAIN REDIRECT (from parked domain detection) ===
         extracted_signals = state.get("extracted_signals")
         if extracted_signals and extracted_signals.new_domain_redirect:
-            logger.info(f"Following domain redirect: {website_url} → {extracted_signals.new_domain_redirect}")
+            logger.info(f"[{business_name_state}] Following domain redirect: {website_url} → {extracted_signals.new_domain_redirect}")
             execution_log.append(f"Domain redirect detected. Following: {extracted_signals.new_domain_redirect}")
             website_url = extracted_signals.new_domain_redirect
 
@@ -71,7 +74,7 @@ async def enrichment_node(state: LeadState) -> dict:
             raise ValueError(f"Could not extract valid domain from URL: {website_url}")
         
         execution_log.append(f"Searching Hunter.io for domain: {domain}")
-        logger.info(f"Hunter.io search for: {domain}")
+        logger.info(f"[{business_name_state}] Hunter.io search for: {domain}")
 
         # Get business and owner information
         business_name = registry_data.business_name or ""
@@ -84,7 +87,7 @@ async def enrichment_node(state: LeadState) -> dict:
             # Check owner email from site first
             if extracted_signals.owner_email_from_site:
                 website_email = extracted_signals.owner_email_from_site
-                logger.info(f"Found owner email on website: {website_email}")
+                logger.info(f"[{business_name_state}] Found owner email on website: {website_email}")
             # If no owner email, check contact_information dict
             elif (
                 extracted_signals.contact_information 
@@ -92,7 +95,7 @@ async def enrichment_node(state: LeadState) -> dict:
             ):
                 website_email = extracted_signals.contact_information.get("email")
                 if website_email:
-                    logger.info(f"Found contact email on website: {website_email}")
+                    logger.info(f"[{business_name_state}] Found contact email on website: {website_email}")
         
         # If we found an email on the website, use it directly (save Hunter.io credits)
         if website_email:
@@ -113,11 +116,11 @@ async def enrichment_node(state: LeadState) -> dict:
             primary_contact = website_contact
             enrichment_success = True
             execution_log.append("Skipped Hunter.io (email found on website)")
-            logger.info("Enrichment complete: using website-extracted email, skipping Hunter.io")
+            logger.info(f"[{business_name_state}] Enrichment complete: using website-extracted email, skipping Hunter.io")
         else:
             # === PRIORITY 2: Fallback to Hunter.io if no website email ===
             execution_log.append(f"No website email found. Searching Hunter.io for domain: {domain}")
-            logger.info(f"Hunter.io search for: {domain}")
+            logger.info(f"[{business_name_state}] Hunter.io search for: {domain}")
 
             # Call Hunter service
             hunter_service = await get_hunter_service()
@@ -129,7 +132,7 @@ async def enrichment_node(state: LeadState) -> dict:
 
             if raw_contacts:
                 execution_log.append(f"Found {len(raw_contacts)} contacts")
-                logger.info(f"Hunter.io found {len(raw_contacts)} contacts")
+                logger.info(f"[{business_name_state}] Hunter.io found {len(raw_contacts)} contacts")
 
                 # Convert to HunterContact objects
                 for contact in raw_contacts:
@@ -165,12 +168,12 @@ async def enrichment_node(state: LeadState) -> dict:
                 enrichment_error = "No contacts found"
 
     except Exception as e:
-        logger.error(f"Node 4 error: {e}", exc_info=True)
+        logger.error(f"[{business_name_state}] Node 4 error: {e}", exc_info=True)
         execution_log.append(f"Node 4 error: {e}")
         enrichment_error = str(e)
 
     elapsed = time.time() - start_time
-    logger.info(f"Node 4 completed in {elapsed:.2f}s")
+    logger.info(f"[{business_name_state}] Node 4 completed in {elapsed:.2f}s")
 
     return {
         "enrichment_data": enriched_contacts,

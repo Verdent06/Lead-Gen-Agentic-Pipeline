@@ -67,7 +67,10 @@ async def consensus_node(state: LeadState) -> dict:
         Updated state dict with consensus result and final score
     """
     start_time = time.time()
-    logger.info("=== Node 3: Triangulated Consensus & Deterministic Scoring ===")
+    
+    # Extract business name for logging
+    business_name = state.get("business_name", "Unknown")
+    logger.info(f"\n----------------------------------------\n[{business_name}] === Node 3: Triangulated Consensus & Deterministic Scoring ===")
 
     execution_log = state.get("execution_log", [])
     lead_should_proceed = False
@@ -91,7 +94,7 @@ async def consensus_node(state: LeadState) -> dict:
         website_name = extracted_signals.business_name_from_site or registry_data.business_name or ""
 
         name_match = fuzzy_match(registry_name, website_name)
-        logger.info(f"Name match: {registry_name} vs {website_name} = {name_match:.2f}")
+        logger.info(f"[{business_name}] Name match: {registry_name} vs {website_name} = {name_match:.2f}")
         execution_log.append(f"Name match score: {name_match:.2f}")
 
         # === STEP 2: Address Matching ===
@@ -105,7 +108,7 @@ async def consensus_node(state: LeadState) -> dict:
         )
 
         address_match = fuzzy_match(registry_address, website_address) if website_address else 0.5
-        logger.info(f"Address match: {address_match:.2f}")
+        logger.info(f"[{business_name}] Address match: {address_match:.2f}")
         execution_log.append(f"Address match score: {address_match:.2f}")
 
         # === STEP 3: Conflict Detection ===
@@ -116,12 +119,12 @@ async def consensus_node(state: LeadState) -> dict:
         if name_match < MIN_NAME_MATCH:
             registry_website_conflict = True
             conflict_description = f"Business name mismatch (similarity: {name_match:.2f} < {MIN_NAME_MATCH})"
-            logger.warning(conflict_description)
+            logger.warning(f"[{business_name}] {conflict_description}")
 
         if address_match < MIN_ADDRESS_MATCH and website_address:
             registry_website_conflict = True
             conflict_description = f"Address mismatch (similarity: {address_match:.2f} < {MIN_ADDRESS_MATCH})"
-            logger.warning(conflict_description)
+            logger.warning(f"[{business_name}] {conflict_description}")
 
         # === STEP 4: Calculate Signal Score ===
         signal_score = 0
@@ -188,7 +191,7 @@ async def consensus_node(state: LeadState) -> dict:
             execution_log.append(f"PASSED: Final score {final_lead_score} >= {CONSENSUS_THRESHOLD}")
 
         logger.info(
-            f"Consensus result: passed={lead_should_proceed}, score={final_lead_score}, conflict={registry_website_conflict}"
+            f"[{business_name}] Consensus result: passed={lead_should_proceed}, score={final_lead_score}, conflict={registry_website_conflict}"
         )
 
         # Create consensus result object
@@ -209,13 +212,13 @@ async def consensus_node(state: LeadState) -> dict:
         )
 
     except Exception as e:
-        logger.error(f"Node 3 error: {e}", exc_info=True)
+        logger.error(f"[{business_name}] Node 3 error: {e}", exc_info=True)
         execution_log.append(f"Node 3 error: {e}")
         lead_should_proceed = False
         final_lead_score = 0
 
     elapsed = time.time() - start_time
-    logger.info(f"Node 3 completed in {elapsed:.2f}s")
+    logger.info(f"[{business_name}] Node 3 completed in {elapsed:.2f}s")
 
     return {
         "consensus_result": consensus_result,

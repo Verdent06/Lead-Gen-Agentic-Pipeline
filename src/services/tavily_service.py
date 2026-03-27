@@ -59,7 +59,7 @@ class TavilyService:
 
                 result = response.json()
                 logger.info(
-                    f"Tavily search succeeded for query: {query[:50]}... ({len(result.get('results', []))} results)"
+                    f"Tavily search succeeded for query: {query} -- ({len(result.get('results', []))} results)"
                 )
                 return result
 
