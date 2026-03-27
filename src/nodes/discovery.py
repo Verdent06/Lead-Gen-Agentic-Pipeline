@@ -89,6 +89,14 @@ Details:
             execution_log.append(f"Registry verification: {registry_data.registry_status}")
             logger.info(f"[{business_name}] Business status: {registry_data.registry_status}")
 
+            # Log the registry source URL
+            if registry_data.registry_url:
+                logger.info(f"[{business_name}] Registry Source URL: {registry_data.registry_url}")
+                execution_log.append(f"Registry Source: {registry_data.registry_url}")
+            else:
+                logger.info(f"[{business_name}] Registry verified via aggregate search context (no direct URL available)")
+                execution_log.append("Registry verified via aggregate search context (no direct URL available)")
+
             # === FALLBACK: Search for website URL if not found in registry search ===
             if not registry_data.official_website_url:
                 logger.info(f"[{business_name}] Website URL not found in registry search. Attempting fallback website search...")
@@ -140,12 +148,25 @@ Details:
                     execution_log.append(f"Fallback search error: {fallback_error}")
 
             # Determine if should continue to next node
-            should_continue = registry_data.registry_status == "active"
+            # Allow: active, unknown, not_found (proceed to crawler for verification)
+            # Block: inactive, suspended, dissolved (definitive negative signals)
+            blocked_statuses = {"inactive", "suspended", "dissolved"}
+            should_continue = registry_data.registry_status.lower() not in blocked_statuses
 
             if not should_continue:
                 execution_log.append(
-                    f"Route to END: Business status is '{registry_data.registry_status}'"
+                    f"Route to END: Business status is '{registry_data.registry_status}' (blocked status)"
                 )
+            else:
+                if registry_data.registry_status.lower() == "unknown":
+                    logger.info(f"[{business_name}] Registry status unknown - proceeding to website crawler for verification")
+                    execution_log.append("Registry status unknown - proceeding to website crawler for verification")
+                elif registry_data.registry_status.lower() == "not_found":
+                    logger.info(f"[{business_name}] Registry not found - proceeding to website crawler for verification")
+                    execution_log.append("Registry not found - proceeding to website crawler for verification")
+                else:
+                    logger.info(f"[{business_name}] Registry status '{registry_data.registry_status}' - proceeding to website crawler")
+                    execution_log.append(f"Proceeding to website crawler (status: {registry_data.registry_status})")
         else:
             execution_log.append("Registry verification failed - business not found")
             should_continue = False

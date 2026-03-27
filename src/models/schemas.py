@@ -178,6 +178,16 @@ class WebsiteSignals(BaseModel):
         description="Other custom signals extracted (expand as needed per use case)",
     )
 
+    is_target_industry: bool = Field(
+        ..., 
+        description="True if the website explicitly belongs to the target industry (e.g., HVAC distribution). False if industry is irrelevant (e.g., labor union, non-HVAC business)."
+    )
+
+    industry_evidence: str = Field(
+        ...,
+        description="Direct evidence from website text justifying the is_target_industry determination. Include specific phrases or indicators that confirm or reject HVAC distribution industry."
+    )
+
     extraction_confidence: float = Field(
         ...,
         ge=0.0,

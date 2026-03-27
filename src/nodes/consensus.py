@@ -89,6 +89,55 @@ async def consensus_node(state: LeadState) -> dict:
 
         execution_log.append("Consensus validation started")
 
+        # === REGISTRY STATUS CHECK: Hard Fail for Inactive Statuses ===
+        registry_status = (registry_data.registry_status or "unknown").lower()
+        blocked_statuses = {"inactive", "suspended", "dissolved"}
+        
+        if registry_status in blocked_statuses:
+            logger.warning(f"[{business_name}] HARD FAIL: Business legally {registry_status}")
+            execution_log.append(f"REJECTED: Business legally {registry_status}")
+            
+            consensus_result = ConsensusResult(
+                lead_should_proceed=False,
+                name_match=0.0,
+                address_match=0.0,
+                address_mismatch_details=None,
+                registry_website_conflict=True,
+                conflict_description=f"Business legally {registry_status}",
+                signal_scoring={},
+                base_signal_score=0,
+                match_bonus=0,
+                final_lead_score=0,
+                drop_reason="Business legally inactive",
+                validation_notes=f"Registry status: {registry_status}",
+                recommended_follow_up="Not a valid business - skip.",
+            )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"[{business_name}] Node 3 completed in {elapsed:.2f}s (legal status rejection)")
+            
+            return {
+                "consensus_result": consensus_result,
+                "name_match_confidence": 0.0,
+                "address_match_confidence": 0.0,
+                "lead_score": 0,
+                "consensus_passed": False,
+                "dropped_reason": "Business legally inactive",
+                "execution_log": execution_log,
+                "node_timestamps": {**state.get("node_timestamps", {}), "consensus": elapsed},
+                "should_continue": False,
+            }
+
+        # === REGISTRY BONUS: Verification Premium ===
+        registry_bonus = 0
+        if registry_status == "active":
+            registry_bonus = 15
+            logger.info(f"[{business_name}] Registry Verification Bonus: +{registry_bonus} pts (business verified as active)")
+            execution_log.append(f"+ {registry_bonus} pts: Registry verification bonus (business verified as active)")
+        elif registry_status == "unknown":
+            logger.info(f"[{business_name}] Registry status: unknown (no bonus, requires website verification)")
+            execution_log.append("Registry status: unknown (no bonus applied, requires website verification)")
+
         # === STEP 1: Name Matching ===
         registry_name = registry_data.business_name or ""
         website_name = extracted_signals.business_name_from_site or registry_data.business_name or ""
@@ -111,7 +160,44 @@ async def consensus_node(state: LeadState) -> dict:
         logger.info(f"[{business_name}] Address match: {address_match:.2f}")
         execution_log.append(f"Address match score: {address_match:.2f}")
 
-        # === STEP 3: Conflict Detection ===
+        # === STEP 3: HARD FAIL - Industry Verification ===
+        # If the website is NOT in the target industry (HVAC distribution), immediately fail
+        if not extracted_signals.is_target_industry:
+            logger.warning(f"[{business_name}] HARD FAIL: Irrelevant industry. Evidence: {extracted_signals.industry_evidence}")
+            execution_log.append(f"REJECTED: Irrelevant Industry - {extracted_signals.industry_evidence}")
+            
+            consensus_result = ConsensusResult(
+                lead_should_proceed=False,
+                name_match=name_match,
+                address_match=address_match,
+                address_mismatch_details=None,
+                registry_website_conflict=True,
+                conflict_description="Irrelevant Industry",
+                signal_scoring={},
+                base_signal_score=0,
+                match_bonus=0,
+                final_lead_score=0,
+                drop_reason="Irrelevant Industry",
+                validation_notes=f"Industry rejection: {extracted_signals.industry_evidence}",
+                recommended_follow_up="Not a target industry - skip.",
+            )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"[{business_name}] Node 3 completed in {elapsed:.2f}s (industry rejection)")
+            
+            return {
+                "consensus_result": consensus_result,
+                "name_match_confidence": 0.0,
+                "address_match_confidence": 0.0,
+                "lead_score": 0,
+                "consensus_passed": False,
+                "dropped_reason": "Irrelevant Industry",
+                "execution_log": execution_log,
+                "node_timestamps": {**state.get("node_timestamps", {}), "consensus": elapsed},
+                "should_continue": False,
+            }
+
+        # === STEP 4: Conflict Detection ===
         registry_website_conflict = False
         conflict_description = None
 
@@ -126,7 +212,7 @@ async def consensus_node(state: LeadState) -> dict:
             conflict_description = f"Address mismatch (similarity: {address_match:.2f} < {MIN_ADDRESS_MATCH})"
             logger.warning(f"[{business_name}] {conflict_description}")
 
-        # === STEP 4: Calculate Signal Score ===
+        # === STEP 5: Calculate Signal Score ===
         signal_score = 0
         signal_scoring = {}
 
@@ -164,7 +250,7 @@ async def consensus_node(state: LeadState) -> dict:
         # Cap base signal score at 100
         base_signal_score = min(signal_score, 100)
 
-        # === STEP 5: Match Quality Bonus ===
+        # === STEP 6: Match Quality Bonus ===
         match_bonus = 0
         if name_match >= 0.95 and address_match >= 0.90:
             match_bonus = 20
@@ -173,10 +259,14 @@ async def consensus_node(state: LeadState) -> dict:
             match_bonus = 10
             execution_log.append("+ 10 pts: Good name/address match bonus")
 
-        # === STEP 6: Final Score Calculation ===
-        final_lead_score = min(base_signal_score + match_bonus, 100)
+        # === STEP 7: Final Score Calculation ===
+        final_lead_score = min(base_signal_score + match_bonus + registry_bonus, 100)
+        
+        # Log the score breakdown
+        logger.info(f"[{business_name}] Score Breakdown: base={base_signal_score} + match_bonus={match_bonus} + registry_bonus={registry_bonus} = {final_lead_score}")
+        execution_log.append(f"Final Score: {base_signal_score} (base) + {match_bonus} (match) + {registry_bonus} (registry) = {final_lead_score}")
 
-        # === STEP 7: Pass/Fail Determination ===
+        # === STEP 8: Pass/Fail Determination ===
         if registry_website_conflict:
             lead_should_proceed = False
             drop_reason = conflict_description

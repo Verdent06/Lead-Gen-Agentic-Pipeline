@@ -68,8 +68,17 @@ async def web_crawler_node(state: LeadState) -> dict:
         llm_service = await get_llm_service()
 
         extraction_prompt = f"""
-Analyze the following website content for hidden business signals.
-Look for:
+Analyze the following website content for hidden business signals AND VERIFY THE INDUSTRY.
+
+CRITICAL: Industry Verification
+- This search is specifically for HVAC distribution businesses (HVAC wholesale/distribution companies).
+- Determine if this website belongs to the HVAC distribution industry.
+- REJECT if the business is: labor union, government agency, non-HVAC business, or irrelevant industry.
+- ACCEPT only if the website clearly indicates HVAC distribution/wholesale activities.
+- Look for keywords like: "HVAC supplies", "heating cooling", "air conditioning distributor", "HVAC wholesale", "duct", "compressor", "refrigerant", "furnace", "HVAC equipment", "ductless", "heat pump", etc.
+- SEMANTIC SYNONYMS: In this industry, 'HVAC Supply', 'HVAC Parts Supplier', and 'HVAC Wholesaler' mean the EXACT SAME THING as an HVAC Distributor. If the website indicates they are a supply company selling HVAC equipment, ACCEPT them.
+
+Look for these business signals:
 1. E-commerce store presence (Shopify, WooCommerce, custom platform, none)
 2. Legacy software mentions (Flash, old ASP.NET, outdated technology)
 3. Succession planning signals (family members in business, ownership transition discussions)
@@ -88,6 +97,12 @@ For each signal, provide:
 - Detected (true/false)
 - Confidence (0.0-1.0)
 - Direct evidence from the text
+
+INDUSTRY DETERMINATION:
+- is_target_industry: Set to true ONLY if the website clearly operates in HVAC distribution. Set to false if irrelevant.
+- industry_evidence: Quote or describe specific phrases from the website that justify your determination. Examples:
+  * If HVAC: "Website mentions they are an HVAC supply company providing equipment to contractors."
+  * If NOT HVAC: "Website is for a labor union, not an HVAC distributor"
 """
 
         extracted_signals = await llm_service.extract_structured(
