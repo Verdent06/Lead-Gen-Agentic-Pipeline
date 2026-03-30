@@ -15,13 +15,14 @@ def should_continue_after_discovery(state: LeadState) -> str:
     """
     Conditional edge after Node 1 (Discovery).
 
-    Routes to Node 2 if registry status is 'active', otherwise to END.
+    Routes to Node 2 if registry status is 'active', 'unknown', or 'not_found'.
+    Routes to END only if status is 'inactive', 'suspended', or 'dissolved'.
     """
     status = state.get("registry_verification_status", "")
     should_continue = state.get("should_continue", False)
 
-    if should_continue and status == "active":
-        logger.info("Discovery → Node 2 (Web Crawler)")
+    if should_continue:
+        logger.info(f"Discovery → Node 2 (Web Crawler) [status: {status}]")
         return "web_crawler"
     else:
         logger.info(f"Discovery → END (status: {status})")
@@ -53,7 +54,7 @@ def build_graph() -> StateGraph:
         START
           ↓
         Node 1: Discovery (Registry Check)
-          ├→ Active → Node 2: Web Crawler (Signal Extraction)
+          ├→ Active/Unknown/Not Found → Node 2: Web Crawler (Signal Extraction)
           │             ↓
           │           Node 3: Consensus (Deterministic Scoring)
           │             ├→ Passed → Node 4: Enrichment (Hunter.io)
@@ -62,7 +63,7 @@ def build_graph() -> StateGraph:
           │             │
           │             └→ Failed → END
           │
-          └→ Inactive/Not Found → END
+          └→ Inactive/Suspended/Dissolved → END
 
     Returns:
         Compiled StateGraph ready for ainvoke()

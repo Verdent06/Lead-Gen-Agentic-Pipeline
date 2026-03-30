@@ -1,7 +1,9 @@
 """Main entry point for the autonomous sourcing agent pipeline."""
 
 import asyncio
+import csv
 import logging
+import os
 import time
 from typing import Optional
 from src.models.state import LeadState
@@ -230,6 +232,34 @@ async def run_batch_pipeline(macro_query: str):
             
     return successful_results
 
+
+def export_qualified_leads(results: list, filename: str = "qualified_leads.csv"):
+    """Export qualified leads that passed consensus to a CSV file."""
+    # Filter for leads that passed consensus
+    qualified = [r for r in results if r.passed_consensus]
+    if not qualified:
+        print("\n[EXPORT] No leads passed consensus in this batch. CSV not updated.")
+        return
+    
+    headers = ["Business Name", "Website", "Lead Score", "Contact Name", "Contact Email", "Job Title"]
+    file_exists = os.path.isfile(filename)
+    
+    with open(filename, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(headers)
+            
+        for lead in qualified:
+            c_name = f"{lead.primary_contact.first_name or ''} {lead.primary_contact.last_name or ''}".strip() if lead.primary_contact else "N/A"
+            c_email = lead.primary_contact.email if lead.primary_contact else "N/A"
+            c_title = lead.primary_contact.job_title if lead.primary_contact else "N/A"
+            website = lead.website_signals.website_url if lead.website_signals else "N/A"
+            
+            writer.writerow([lead.business_name, website, lead.lead_score, c_name, c_email, c_title])
+            
+    print(f"\n[EXPORT] ✅ Successfully appended {len(qualified)} highly qualified leads to {filename}")
+
+
 async def main():
     """Main entry point with batch query."""
     macro_query = "Find independent HVAC distributors in Ohio that do not have e-commerce"
@@ -249,6 +279,8 @@ async def main():
         print(f"Passed Consensus: {result.passed_consensus}")
         print(f"Recommendation: {result.recommendation}")
         print("-" * 40)
+    
+    export_qualified_leads(results)
         
     return results
 

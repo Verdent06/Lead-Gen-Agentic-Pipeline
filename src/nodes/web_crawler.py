@@ -70,12 +70,15 @@ async def web_crawler_node(state: LeadState) -> dict:
         extraction_prompt = f"""
 Analyze the following website content for hidden business signals AND VERIFY THE INDUSTRY.
 
-CRITICAL: Industry Verification
+CRITICAL: Industry Verification - HVAC SUPPLY EQUALS HVAC DISTRIBUTOR
 - This search is specifically for HVAC distribution businesses (HVAC wholesale/distribution companies).
-- Determine if this website belongs to the HVAC distribution industry.
-- REJECT if the business is: labor union, government agency, non-HVAC business, or irrelevant industry.
-- ACCEPT only if the website clearly indicates HVAC distribution/wholesale activities.
-- Look for keywords like: "HVAC supplies", "heating cooling", "air conditioning distributor", "HVAC wholesale", "duct", "compressor", "refrigerant", "furnace", "HVAC equipment", "ductless", "heat pump", etc.
+- In this industry, "HVAC Supply", "HVAC Supplier", "HVAC Parts Supplier", "HVAC Wholesaler", and "HVAC Distributor" are SYNONYMOUS TERMS.
+- Determine if this website belongs to the HVAC distribution industry by looking for any of these indicators:
+  * Business name/description includes: "HVAC", "heating", "cooling", "air conditioning", "AC"
+  * AND they mention: "supply", "supplier", "distributor", "wholesale", "parts", "equipment"
+- REJECT ONLY if the business is: labor union, government agency, residential HVAC contractor, manufacturer, or completely non-HVAC.
+- ACCEPT if the website indicates they are an HVAC supply/wholesale company serving contractors and businesses (they ARE a distributor).
+- Look for keywords like: "HVAC supplies", "heating cooling", "air conditioning supplier", "HVAC wholesale", "duct", "compressor", "refrigerant", "furnace", "HVAC equipment", "ductless", "heat pump", "contractor supply", "wholesale distributor", etc.
 - SEMANTIC SYNONYMS: In this industry, 'HVAC Supply', 'HVAC Parts Supplier', and 'HVAC Wholesaler' mean the EXACT SAME THING as an HVAC Distributor. If the website indicates they are a supply company selling HVAC equipment, ACCEPT them.
 
 Look for these business signals:
@@ -99,10 +102,11 @@ For each signal, provide:
 - Direct evidence from the text
 
 INDUSTRY DETERMINATION:
-- is_target_industry: Set to true ONLY if the website clearly operates in HVAC distribution. Set to false if irrelevant.
+- is_target_industry: Set to true if the website clearly operates in HVAC supply/distribution. Set to false ONLY if they are NOT in HVAC at all.
 - industry_evidence: Quote or describe specific phrases from the website that justify your determination. Examples:
-  * If HVAC: "Website mentions they are an HVAC supply company providing equipment to contractors."
-  * If NOT HVAC: "Website is for a labor union, not an HVAC distributor"
+  * If HVAC: "Website is a family-owned HVAC supply company providing equipment to contractors and businesses"
+  * If HVAC: "Founded in 2010 as an HVAC parts supplier and distributor for Ohio and surrounding regions"
+  * If NOT HVAC: "Website is for a labor union, not an HVAC business"
 """
 
         extracted_signals = await llm_service.extract_structured(
