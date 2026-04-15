@@ -80,7 +80,7 @@ from src.main import run_sourcing_agent
 async def main():
     result = await run_sourcing_agent(
         query="Find HVAC distributors in Ohio without e-commerce",
-        business_name="Smith HVAC Distributors",
+        business_name="Example Company Corp",
         location="Cleveland, Ohio",
     )
     print(f"Lead Score: {result.lead_score}/100")

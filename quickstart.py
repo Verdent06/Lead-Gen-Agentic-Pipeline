@@ -79,7 +79,7 @@ async def quick_start():
 
         result = await run_sourcing_agent(
             query="Find HVAC distributors in Ohio without e-commerce",
-            business_name="Smith HVAC Distributors",
+            business_name="Example Company Corp",
             location="Cleveland, Ohio",
         )
 

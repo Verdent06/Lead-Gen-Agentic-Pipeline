@@ -1,4 +1,4 @@
-"""LLM service with support for multiple providers (Gemini, Ollama)."""
+"""LLM service with support for multiple providers (Grok, Ollama, Gemini)."""
 
 import json
 from typing import Type, TypeVar, Optional
@@ -15,36 +15,40 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMService:
-    """Wrapper for LLM API with Pydantic schema enforcement (Gemini or Ollama)."""
+    """Wrapper for LLM API with Pydantic schema enforcement (Grok, Ollama, or Gemini)."""
 
     def __init__(self):
         """Initialize LLM client based on configured provider."""
         Config.validate()
         
         if Config.LLM_PROVIDER == "grok":
-            logger.info(f"Initializing Grok LLM (model: grok-4.20-0309-non-reasoning)")
+            model_label = "grok-4.20-0309-non-reasoning"
             self.client = ChatOpenAI(
-                model="grok-4.20-0309-non-reasoning",
+                model=model_label,
                 api_key=Config.GROK_API_KEY,
                 base_url="https://api.x.ai/v1",
                 temperature=Config.LLM_TEMPERATURE,
             )
         elif Config.LLM_PROVIDER == "ollama":
-            logger.info(f"Initializing Ollama LLM at {Config.OLLAMA_BASE_URL} (model: {Config.OLLAMA_MODEL})")
+            model_label = Config.OLLAMA_MODEL
             self.client = ChatOllama(
                 model=Config.OLLAMA_MODEL,
                 base_url=Config.OLLAMA_BASE_URL,
                 temperature=Config.LLM_TEMPERATURE,
             )
         else:  # Default to Google Gemini
-            logger.info(f"Initializing Google Gemini (model: {Config.LLM_MODEL})")
+            model_label = Config.LLM_MODEL
             self.client = ChatGoogleGenerativeAI(
                 model=Config.LLM_MODEL,
                 temperature=Config.LLM_TEMPERATURE,
                 google_api_key=Config.GOOGLE_API_KEY,
             )
-        
+
         self.provider = Config.LLM_PROVIDER
+        extra = ""
+        if Config.LLM_PROVIDER == "ollama":
+            extra = f" at {Config.OLLAMA_BASE_URL}"
+        logger.info(f"Initializing {Config.LLM_PROVIDER} LLM{extra} (model: {model_label})")
 
     async def extract_structured(
         self,

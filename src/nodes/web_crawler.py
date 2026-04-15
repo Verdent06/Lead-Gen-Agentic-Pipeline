@@ -70,6 +70,8 @@ async def web_crawler_node(state: LeadState) -> dict:
         extraction_prompt = f"""
 Analyze the following website content for hidden business signals AND VERIFY THE INDUSTRY.
 
+CRITICAL NAME EXTRACTION: You MUST extract the ACTUAL business name as it appears in the website markdown (headers, title, about text, footer). DO NOT use placeholder names, and DO NOT hallucinate. If the website says "Duncan Supply", output "Duncan Supply". If it says "Behler-Young Co.", output that exact string. The business_name_from_site field must match what is written on this page, not any name from elsewhere in the pipeline.
+
 CRITICAL: Industry Verification - HVAC SUPPLY EQUALS HVAC DISTRIBUTOR
 - This search is specifically for HVAC distribution businesses (HVAC wholesale/distribution companies).
 - In this industry, "HVAC Supply", "HVAC Supplier", "HVAC Parts Supplier", "HVAC Wholesaler", and "HVAC Distributor" are SYNONYMOUS TERMS.

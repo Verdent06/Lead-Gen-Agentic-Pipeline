@@ -77,23 +77,23 @@ class TavilyService:
                 {
                     "title": "HVAC Distributors - Ohio State Business Registry",
                     "url": "https://www.ohio.gov/business/hvac-distributors",
-                    "content": "Smith HVAC Distributors LLC, registered 2010, status: active. Address: 1500 Industrial Dr, Cleveland, OH 44114. Owner: Robert Smith.",
+                    "content": "Example Company Corp LLC, registered 2010, status: active. Address: 1500 Industrial Dr, Cleveland, OH 44114. Owner: Jordan Lee.",
                     "score": 0.95,
                 },
                 {
-                    "title": "Smith HVAC - Official Website",
-                    "url": "https://www.smithhvac.com",
+                    "title": "Example Company Corp - Official Website",
+                    "url": "https://www.example-company-corp.test",
                     "content": "We are a leading independent HVAC distributor serving Ohio since 2010. Family-owned business.",
                     "score": 0.89,
                 },
                 {
                     "title": "Ohio HVAC Business Directory",
                     "url": "https://www.ohiobiz.gov/hvac",
-                    "content": "Search results for HVAC businesses in Ohio. Smith HVAC Distributors listed as active.",
+                    "content": "Search results for HVAC businesses in Ohio. Example Company Corp listed as active.",
                     "score": 0.82,
                 },
             ],
-            "answer": "Smith HVAC Distributors is an active HVAC distribution company registered in Ohio since 2010.",
+            "answer": "Example Company Corp is an active HVAC distribution company registered in Ohio since 2010.",
             "query": query,
         }
 

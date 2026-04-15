@@ -158,7 +158,11 @@ class WebsiteSignals(BaseModel):
     )
 
     business_name_from_site: Optional[str] = Field(
-        default=None, description="Business name as stated on website (for name matching)"
+        default=None,
+        description=(
+            "Legal or trade name exactly as written in the page markdown (header, title, about). "
+            "Must match this site only—no placeholders, no invented names, no names from search snippets."
+        ),
     )
 
     owner_email_from_site: Optional[str] = Field(
