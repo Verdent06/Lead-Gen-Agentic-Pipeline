@@ -165,7 +165,7 @@ async def discover_businesses(macro_query: str) -> List[DiscoveredBusiness]:
     search_results = await tavily.search(
         query=macro_query,
         include_answer=True,
-        num_results=25,
+        num_results=50,
         topic="general",
         search_depth="advanced"
     )
@@ -263,7 +263,7 @@ def export_qualified_leads(results: list, filename: str = "qualified_leads.csv")
 
 async def main():
     """Main entry point with batch query."""
-    macro_query = "List 15 independent HVAC distributors in Ohio. Do not include merged companies. List unique entities only."
+    macro_query = "List 30 independent HVAC distributors in Ohio. Do not include merged companies. List unique entities only."
     
     # Run the batch agent
     results = await run_batch_pipeline(macro_query)
