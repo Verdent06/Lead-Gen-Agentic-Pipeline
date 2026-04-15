@@ -165,8 +165,9 @@ async def discover_businesses(macro_query: str) -> List[DiscoveredBusiness]:
     search_results = await tavily.search(
         query=macro_query,
         include_answer=True,
-        num_results=10,
-        topic="general"
+        num_results=25,
+        topic="general",
+        search_depth="advanced"
     )
     
     # Format results for LLM
@@ -253,7 +254,7 @@ def export_qualified_leads(results: list, filename: str = "qualified_leads.csv")
             c_name = f"{lead.primary_contact.first_name or ''} {lead.primary_contact.last_name or ''}".strip() if lead.primary_contact else "N/A"
             c_email = lead.primary_contact.email if lead.primary_contact else "N/A"
             c_title = lead.primary_contact.job_title if lead.primary_contact else "N/A"
-            website = lead.website_signals.website_url if lead.website_signals else "N/A"
+            website = lead.registry_verification.official_website_url if (lead.registry_verification and lead.registry_verification.official_website_url) else "N/A"
             
             writer.writerow([lead.business_name, website, lead.lead_score, c_name, c_email, c_title])
             
@@ -262,7 +263,7 @@ def export_qualified_leads(results: list, filename: str = "qualified_leads.csv")
 
 async def main():
     """Main entry point with batch query."""
-    macro_query = "Find independent HVAC distributors in Ohio that do not have e-commerce"
+    macro_query = "List 15 independent HVAC distributors in Ohio. Do not include merged companies. List unique entities only."
     
     # Run the batch agent
     results = await run_batch_pipeline(macro_query)

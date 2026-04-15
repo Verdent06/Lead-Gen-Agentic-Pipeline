@@ -23,6 +23,7 @@ class TavilyService:
         include_answer: bool = True,
         num_results: int = 10,
         topic: str = "general",
+        search_depth: str = "basic",
     ) -> Dict[str, Any]:
         """
         Perform async search via Tavily API.
@@ -32,6 +33,7 @@ class TavilyService:
             include_answer: Whether to include AI-generated answer
             num_results: Number of results to return
             topic: Search topic (general, news, etc.)
+            search_depth: Search depth level (basic or advanced)
 
         Returns:
             Search results dictionary with 'results' array
@@ -48,6 +50,7 @@ class TavilyService:
                     "include_answer": include_answer,
                     "num_results": num_results,
                     "topic": topic,
+                    "search_depth": search_depth,
                 }
 
                 response = await client.post(

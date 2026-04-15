@@ -5,6 +5,7 @@ from typing import Type, TypeVar, Optional
 import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from src.config import Config
 
@@ -20,7 +21,15 @@ class LLMService:
         """Initialize LLM client based on configured provider."""
         Config.validate()
         
-        if Config.LLM_PROVIDER == "ollama":
+        if Config.LLM_PROVIDER == "grok":
+            logger.info(f"Initializing Grok LLM (model: grok-4.20-0309-non-reasoning)")
+            self.client = ChatOpenAI(
+                model="grok-4.20-0309-non-reasoning",
+                api_key=Config.GROK_API_KEY,
+                base_url="https://api.x.ai/v1",
+                temperature=Config.LLM_TEMPERATURE,
+            )
+        elif Config.LLM_PROVIDER == "ollama":
             logger.info(f"Initializing Ollama LLM at {Config.OLLAMA_BASE_URL} (model: {Config.OLLAMA_MODEL})")
             self.client = ChatOllama(
                 model=Config.OLLAMA_MODEL,

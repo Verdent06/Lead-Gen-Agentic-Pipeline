@@ -10,11 +10,12 @@ load_dotenv('.env.local')
 class Config:
     """Application configuration from environment variables."""
 
-    # LLM Provider (ollama or google)
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+    # LLM Provider (ollama, google, or grok)
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "grok")
 
-    # API Keys (for Gemini/Google)
+    # API Keys (for Gemini/Google/Grok)
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GROK_API_KEY: str = os.getenv("GROK_API_KEY", "")
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
     HUNTER_API_KEY: str = os.getenv("HUNTER_API_KEY", "")
 
@@ -42,9 +43,13 @@ class Config:
         if cls.LLM_PROVIDER == "ollama":
             return
 
+        # If using Grok, require API key or mocks
+        if cls.LLM_PROVIDER == "grok" and not cls.GROK_API_KEY and not cls.USE_MOCKS:
+            raise ValueError("GROK_API_KEY is required when LLM_PROVIDER is grok or USE_MOCKS must be true")
+
         # If using Google Gemini, require API key or mocks
-        if not cls.GOOGLE_API_KEY and not cls.USE_MOCKS:
-            raise ValueError("GOOGLE_API_KEY is required or USE_MOCKS must be true")
+        if cls.LLM_PROVIDER == "google" and not cls.GOOGLE_API_KEY and not cls.USE_MOCKS:
+            raise ValueError("GOOGLE_API_KEY is required when LLM_PROVIDER is google or USE_MOCKS must be true")
 
         if not cls.TAVILY_API_KEY and not cls.USE_MOCKS:
             raise ValueError("TAVILY_API_KEY is required or USE_MOCKS must be true")
