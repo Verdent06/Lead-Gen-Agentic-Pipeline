@@ -3,9 +3,8 @@
 import logging
 import re
 import time
-from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, Optional, Set
 
 from src.models.state import LeadState
 from src.models.schemas import ConsensusResult
@@ -21,7 +20,6 @@ SIGNAL_SCORES = {
 }
 
 MIN_NAME_MATCH = 0.70  # Minimum fuzzy match for business names
-MIN_ADDRESS_MATCH = 0.65  # Minimum fuzzy match for addresses (more flexible due to formatting)
 CONSENSUS_THRESHOLD = 70  # Final score must be >= this to pass
 
 # Truncate long blobs in logs (contact JSON can be huge)
@@ -95,361 +93,56 @@ _US_STATE_NAME_TO_ABBR: Dict[str, str] = {
 
 _US_STATE_ABBRS: Set[str] = set(_US_STATE_NAME_TO_ABBR.values())
 
-# North American phone numbers (strip before ZIP / address tokenization to avoid GIGO).
-# Leading NANP country "1" must not match when it is the last digit of another number
-# (e.g. ZIP 45241 before area code 513 → would otherwise strip "1 513..." and corrupt ZIP).
-_NA_PHONE_STRIP_RE = re.compile(
-    r"(?:"
-    r"(?:\+1[-.\s]{0,3}|(?<![0-9])1[-.\s]{0,3})?"
-    r"(?:\(\s*\d{3}\s*\)|\b\d{3})\s*[-.\s]?\s*\d{3}\s*[-.\s]?\s*\d{4}\b"
-    r"|"
-    r"(?<![0-9])\b1\d{10}\b"
-    r"|"
-    r"\b\d{10}\b"
-    r")"
-)
 
-
-def _strip_north_american_phones(text: str) -> str:
-    """Remove common NANP phone formats; collapse whitespace."""
-    if not text:
-        return ""
-    s = _NA_PHONE_STRIP_RE.sub(" ", str(text))
-    return re.sub(r"\s+", " ", s).strip()
-
-
-_PLACEHOLDER_EXACT: Set[str] = {
-    "n/a",
-    "none",
-    "null",
-    "missing",
-    "unknown",
-}
-
-
-def _compose_registry_address_line(registry_data: Any) -> str:
-    parts = [
-        getattr(registry_data, "business_address", None) or "",
-        getattr(registry_data, "city", None) or "",
-        getattr(registry_data, "state", None) or "",
-        getattr(registry_data, "zip_code", None) or "",
-    ]
-    return " ".join(p.strip() for p in parts if p and str(p).strip()).strip()
-
-
-def _compose_website_address_line(contact_information: Optional[Dict[str, str]]) -> str:
-    """Merge common LLM keys into one string for comparison."""
-    if not contact_information:
-        return ""
-    ci = {
-        str(k).lower(): (str(v) if v is not None else "").strip()
-        for k, v in contact_information.items()
-        if v is not None and str(v).strip()
-    }
-    for key in (
-        "address",
-        "mailing_address",
-        "hq_address",
-        "physical_address",
-        "street_address",
-        "location",
-        "street",
-    ):
-        if key in ci and ci[key]:
-            return ci[key]
-    city = ci.get("city", "")
-    state = ci.get("state", "")
-    z = ci.get("zip") or ci.get("postal_code") or ci.get("zipcode") or ""
-    merged = " ".join(x for x in (city, state, z) if x).strip()
-    return merged if len(merged) > 4 else ""
-
-
-def _join_contact_values(contact_information: Optional[Dict[str, str]]) -> str:
-    """All non-empty contact strings (for ZIP extraction when address key is sparse)."""
-    if not contact_information:
-        return ""
-    parts: List[str] = []
-    for v in contact_information.values():
-        if v is not None and str(v).strip():
-            parts.append(str(v).strip())
-    return " ".join(parts)
-
-
-def _extract_zip_codes(text: str) -> List[str]:
-    """
-    US ZIP5 or ZIP+4 → unique 5-digit codes in order of first appearance.
-
-    Strips North American phone numbers first. A 5-digit token at the very
-    start of the string (leading building number, e.g. ``11413 Enterprise …``)
-    is not treated as a ZIP.
-    """
-    if not text:
-        return []
-    cleaned = _strip_north_american_phones(str(text))
-    if not cleaned:
-        return []
-    first_tok = cleaned.split()[0]
-    out: List[str] = []
-    seen: Set[str] = set()
-    for m in re.finditer(r"\b(\d{5})(?:-\d{4})?\b", cleaned):
-        if m.start() == 0 and m.group(0) == first_tok:
-            continue
-        z = m.group(1)
-        if z not in seen:
-            seen.add(z)
-            out.append(z)
-    return out
-
-
-def _zip_sets_from_texts(*chunks: str) -> Set[str]:
-    z: Set[str] = set()
-    for c in chunks:
-        z.update(_extract_zip_codes(c))
-    return z
-
-
-@dataclass
-class AddressMatchDiagnostics:
-    """Structured fields logged for debugging address/ZIP/street matching."""
-
-    registry_line_raw: str
-    website_composed_raw: str
-    website_contact_blob_preview: str
-    registry_zip_codes: List[str]
-    website_zip_codes: List[str]
-    site_line_used_for_match: str
-    decision_path: str
-    normalized_registry: str
-    normalized_website: str
-    fuzzy_full_address_score: Optional[float]
-    street_core_score: Optional[float]
-    registry_street_candidates: List[str] = field(default_factory=list)
-    website_street_candidates: List[str] = field(default_factory=list)
-    overlapping_zips: List[str] = field(default_factory=list)
-    zip_mismatch_detail: Optional[str] = None
-    notes: str = ""
-
-
-def _log_address_match_transparency(business_name: str, d: AddressMatchDiagnostics, final_score: float) -> None:
-    """Emit multi-line INFO logs showing exactly what was compared."""
-    logger.info(f"[{business_name}] --- Address match (transparent) ---")
-    logger.info(f"[{business_name}]   Decision path: {d.decision_path}")
-    if d.notes:
-        logger.info(f"[{business_name}]   Notes: {d.notes}")
-    logger.info(
-        f"[{business_name}]   Registry address line (composed): {_truncate_for_log(d.registry_line_raw, 400)}"
-    )
-    logger.info(
-        f"[{business_name}]   Website 'address' field (composed): {_truncate_for_log(d.website_composed_raw, 400)}"
-    )
-    logger.info(
-        f"[{business_name}]   Website contact blob preview (ZIP mining): {_truncate_for_log(d.website_contact_blob_preview, _LOG_BLOB_PREVIEW_MAX)}"
-    )
-    logger.info(
-        f"[{business_name}]   ZIP codes — registry: {d.registry_zip_codes if d.registry_zip_codes else '(none parsed)'} | "
-        f"website (composed+blob): {d.website_zip_codes if d.website_zip_codes else '(none parsed)'}"
-    )
-    if d.overlapping_zips:
-        logger.info(f"[{business_name}]   ZIP overlap used for match: {d.overlapping_zips}")
-    if d.zip_mismatch_detail:
-        logger.info(f"[{business_name}]   ZIP conflict: {d.zip_mismatch_detail}")
-    logger.info(
-        f"[{business_name}]   Site line used for fuzzy/street: {_truncate_for_log(d.site_line_used_for_match, 400)}"
-    )
-    logger.info(
-        f"[{business_name}]   Normalized registry: {_truncate_for_log(d.normalized_registry, 400)}"
-    )
-    logger.info(
-        f"[{business_name}]   Normalized website (same basis): {_truncate_for_log(d.normalized_website, 400)}"
-    )
-    logger.info(
-        f"[{business_name}]   Street-core candidates — registry: {d.registry_street_candidates or ['(none)']} | "
-        f"website: {d.website_street_candidates or ['(none)']}"
-    )
-    fs = f"{d.fuzzy_full_address_score:.3f}" if d.fuzzy_full_address_score is not None else "n/a"
-    ss = f"{d.street_core_score:.3f}" if d.street_core_score is not None else "n/a"
-    logger.info(
-        f"[{business_name}]   Subscores — full-address fuzzy: {fs} | street-core: {ss} → "
-        f"final address score: {final_score:.3f}"
-    )
-
-
-def zip_focused_address_match_score(
-    registry_line: str,
-    website_composed_line: str,
-    website_contact_blob: str,
-) -> tuple[float, Optional[str], AddressMatchDiagnostics]:
-    """
-    Prefer matching on US ZIP codes (registry vs site contact text).
-    If both sides expose at least one ZIP and none overlap → strong mismatch.
-    Otherwise fall back to max(full-address fuzzy, street-core fuzzy) on the
-    composed website line (and registry line).
-
-    Returns:
-        (score 0..1, optional ZIP conflict detail, diagnostics for logging).
-    """
-    site_line = (website_composed_line or website_contact_blob or "").strip()
-    blob_preview = _truncate_for_log(website_contact_blob, _LOG_BLOB_PREVIEW_MAX)
-
-    reg_zip_list = _extract_zip_codes(registry_line)
-    web_zip_list = _extract_zip_codes(
-        f"{website_composed_line} {website_contact_blob}".strip()
-    )
-    reg_zips = _zip_sets_from_texts(registry_line)
-    web_zips = _zip_sets_from_texts(website_composed_line, website_contact_blob)
-
-    norm_reg = normalize_address_for_consensus(registry_line)
-    norm_web = normalize_address_for_consensus(site_line) if site_line else ""
-
-    reg_street = _street_core_candidates(norm_reg) if norm_reg else []
-    web_street = _street_core_candidates(norm_web) if norm_web else []
-
-    fuzzy = address_similarity_score(registry_line, site_line) if site_line else 0.0
-    street = street_similarity_score(registry_line, site_line) if site_line else 0.0
-
-    def _base_diag(
-        path: str,
-        overlap: Optional[List[str]] = None,
-        zdetail: Optional[str] = None,
-        notes: str = "",
-    ) -> AddressMatchDiagnostics:
-        return AddressMatchDiagnostics(
-            registry_line_raw=registry_line or "",
-            website_composed_raw=website_composed_line or "",
-            website_contact_blob_preview=blob_preview,
-            registry_zip_codes=reg_zip_list,
-            website_zip_codes=web_zip_list,
-            site_line_used_for_match=site_line,
-            decision_path=path,
-            normalized_registry=norm_reg,
-            normalized_website=norm_web,
-            fuzzy_full_address_score=fuzzy if site_line else None,
-            street_core_score=street if site_line else None,
-            registry_street_candidates=reg_street,
-            website_street_candidates=web_street,
-            overlapping_zips=list(overlap) if overlap else [],
-            zip_mismatch_detail=zdetail,
-            notes=notes,
-        )
-
-    if reg_zips and web_zips:
-        overlap = sorted(reg_zips & web_zips)
-        if overlap:
-            diag = _base_diag(
-                "zip_overlap_both_sides",
-                overlap=overlap,
-                notes="Score=1.0 from at least one matching 5-digit ZIP on registry vs website text.",
-            )
-            return 1.0, None, diag
-        zdetail = (
-            f"registry {sorted(reg_zips)} vs website {sorted(web_zips)} (no overlap)"
-        )
-        diag = _base_diag("zip_disjoint_both_sides", zdetail=zdetail)
-        return 0.12, zdetail, diag
-
-    if not site_line:
-        diag = _base_diag(
-            "no_website_location_line",
-            notes="No composed address and no contact text; default score 0.5.",
-        )
-        diag.fuzzy_full_address_score = None
-        diag.street_core_score = None
-        return 0.5, None, diag
-
-    combined = max(fuzzy, street)
-    path = "fallback_max_full_fuzzy_and_street"
-    if not reg_zips and web_zips:
-        path = "fallback_registry_missing_zip_website_has_zip"
-    elif reg_zips and not web_zips:
-        path = "fallback_website_missing_zip_registry_has_zip"
-    elif not reg_zips and not web_zips:
-        path = "fallback_no_zip_either_side_fuzzy_plus_street"
-
-    diag = _base_diag(
-        path,
-        notes="Final score = max(full-address fuzzy, street-core fuzzy).",
-    )
-    return combined, None, diag
-
-
-def normalize_address_for_consensus(raw: str) -> str:
-    """
-    Deterministic normalization so registry and markdown-sourced addresses
-    score fairly (punctuation, USPS tokens, state names, ZIP+4).
-    """
-    if not raw:
-        return ""
-    t = str(raw).lower()
-    collapsed = re.sub(r"\s+", " ", t).strip()
-    if "not listed" in collapsed or collapsed in _PLACEHOLDER_EXACT:
-        return ""
-    t = _strip_north_american_phones(t)
-    if not t:
-        return ""
-    t = re.sub(r"\bp\.?\s*o\.?\s*box\s*#?\s*\w+", " pobox ", t)
-    t = re.sub(r"\b(ste|suite|unit|apt|apartment)\b\.?\s*#?\s*[\w-]+", " ", t, flags=re.I)
-    t = re.sub(r"[|_;]", " ", t)
-    t = re.sub(r",\s*", " ", t)
-    t = re.sub(r"\.\s+", " ", t)
-    t = re.sub(r"\s+\.\s*", " ", t)
+def _registry_state_abbr(state: Optional[str]) -> Optional[str]:
+    """Return lowercase USPS-style state abbreviation, or None if not parseable."""
+    if state is None or not str(state).strip():
+        return None
+    s = re.sub(r"\s+", " ", str(state).strip().lower())
+    if len(s) == 2 and s in _US_STATE_ABBRS:
+        return s
     for full, abbr in _US_STATE_NAME_TO_ABBR.items():
-        t = re.sub(rf"\b{re.escape(full)}\b", f" {abbr} ", t)
-    t = re.sub(r"\bsaint\b", " st ", t)
-    _suffix_pairs = (
-        (r"\bstreet\b", " st "),
-        (r"\bst\b", " st "),
-        (r"\bavenue\b", " ave "),
-        (r"\bave\b", " ave "),
-        (r"\bdrive\b", " dr "),
-        (r"\bdr\b", " dr "),
-        (r"\broad\b", " rd "),
-        (r"\brd\b", " rd "),
-        (r"\blane\b", " ln "),
-        (r"\bln\b", " ln "),
-        (r"\bcourt\b", " ct "),
-        (r"\bct\b", " ct "),
-        (r"\bboulevard\b", " blvd "),
-        (r"\bblvd\b", " blvd "),
-        (r"\bhighway\b", " hwy "),
-        (r"\bhwy\b", " hwy "),
-        (r"\broute\b", " rte "),
-        (r"\bplace\b", " pl "),
-        (r"\bpl\b", " pl "),
-        (r"\bparkway\b", " pkwy "),
-        (r"\bcircle\b", " cir "),
-        (r"\bcir\b", " cir "),
-        (r"\btrail\b", " trl "),
-        (r"\bnortheast\b", " ne "),
-        (r"\bnorthwest\b", " nw "),
-        (r"\bsoutheast\b", " se "),
-        (r"\bsouthwest\b", " sw "),
-        (r"\bnorth\b", " n "),
-        (r"\bsouth\b", " s "),
-        (r"\beast\b", " e "),
-        (r"\bwest\b", " w "),
-    )
-    for pat, rep in _suffix_pairs:
-        t = re.sub(pat, rep, t, flags=re.I)
-    t = re.sub(r"\b(\d{5})-\d{4}\b", r"\1", t)
-    t = re.sub(r"[^a-z0-9\s]", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+        if re.search(rf"\b{re.escape(full)}\b", s):
+            return abbr
+    return None
 
 
-def address_similarity_score(registry_line: str, website_line: str) -> float:
+def _state_abbrs_in_text(text: str) -> Set[str]:
     """
-    Fuzzy match on normalized addresses; also compares token-sorted forms so
-    '123 main st cleveland oh 44114' aligns with 'cleveland, OH 44114 — 123 Main Street'.
+    US states mentioned in free text (e.g. pipeline ``location``).
+
+    Uses full state names plus ``City, ST``-style abbreviations only. We do not
+    scan for bare 2-letter tokens (avoids false positives like "in" / "or").
     """
-    a = normalize_address_for_consensus(registry_line)
-    b = normalize_address_for_consensus(website_line)
-    if not a or not b:
-        return 0.0
-    direct = fuzzy_match(a, b)
-    sorted_a = " ".join(sorted(a.split()))
-    sorted_b = " ".join(sorted(b.split()))
-    shuffled = fuzzy_match(sorted_a, sorted_b)
-    return max(direct, shuffled)
+    if not text or not str(text).strip():
+        return set()
+    s = str(text).lower()
+    found: Set[str] = set()
+    for full, abbr in _US_STATE_NAME_TO_ABBR.items():
+        if re.search(rf"\b{re.escape(full)}\b", s):
+            found.add(abbr)
+    for m in re.finditer(r"(?:^|[,])\s*([a-z]{2})\b", s):
+        ab = m.group(1)
+        if ab in _US_STATE_ABBRS:
+            found.add(ab)
+    return found
+
+
+def _pipeline_location_state_conflict(
+    registry_state: Optional[str],
+    pipeline_location: Optional[str],
+) -> tuple[bool, Optional[str]]:
+    """
+    If the registry lists a US state and the pipeline location also implies
+    state(s), flag a conflict when they disagree. Intentionally ignores
+    branch vs HQ street/ZIP differences on the website.
+    """
+    reg = _registry_state_abbr(registry_state)
+    loc = _state_abbrs_in_text(pipeline_location or "")
+    if reg and loc and reg not in loc:
+        loc_u = ", ".join(sorted({x.upper() for x in loc}))
+        return True, f"Registry state {reg.upper()} vs pipeline location state(s) [{loc_u}]"
+    return False, None
 
 
 def fuzzy_match(str1: str, str2: str) -> float:
@@ -472,64 +165,6 @@ def fuzzy_match(str1: str, str2: str) -> float:
     return matcher.ratio()
 
 
-def _prep_address_tokens(norm: str) -> List[str]:
-    """Drop trailing ZIP5 and state abbreviations from normalized address tokens."""
-    toks = norm.split()
-    while toks and re.fullmatch(r"\d{5}", toks[-1]):
-        toks.pop()
-    while toks and toks[-1] in _US_STATE_ABBRS:
-        toks.pop()
-    return toks
-
-
-def _extract_street_core(norm_addr: str) -> str:
-    """
-    Street core: first token containing a digit, plus the next four tokens.
-    If ``norm_addr`` has no letters (digits/spaces/punctuation only), returns "".
-    """
-    if not norm_addr or not str(norm_addr).strip():
-        return ""
-    s = str(norm_addr).strip()
-    if not re.search(r"[a-z]", s, flags=re.I):
-        return ""
-    toks = _prep_address_tokens(s)
-    if not toks:
-        return ""
-    start: Optional[int] = None
-    for i, tok in enumerate(toks):
-        if any(ch.isdigit() for ch in tok):
-            start = i
-            break
-    if start is None:
-        return ""
-    chunk = toks[start : start + 5]
-    return " ".join(chunk).strip()
-
-
-def _street_core_candidates(norm: str) -> List[str]:
-    """Normalized street-line candidate from ``_extract_street_core``."""
-    core = _extract_street_core(norm)
-    return [core] if core else []
-
-
-def street_similarity_score(registry_line: str, website_line: str) -> float:
-    """
-    Compare extracted street cores (number + street name + type) with fuzzy and
-    token-sorted variants so city/ZIP ordering does not dominate the score.
-    """
-    ac = _street_core_candidates(normalize_address_for_consensus(registry_line))
-    bc = _street_core_candidates(normalize_address_for_consensus(website_line))
-    if not ac or not bc:
-        return 0.0
-    best = 0.0
-    for a in ac:
-        for b in bc:
-            sa = " ".join(sorted(a.split()))
-            sb = " ".join(sorted(b.split()))
-            best = max(best, fuzzy_match(a, b), fuzzy_match(sa, sb))
-    return best
-
-
 async def consensus_node(state: LeadState) -> dict:
     """
     Node 3: Triangulated Consensus & Deterministic Scoring.
@@ -539,8 +174,8 @@ async def consensus_node(state: LeadState) -> dict:
     Compares registry data (Node 1) against website signals (Node 2).
     Validates:
     1. Business name fuzzy match (must be >= MIN_NAME_MATCH)
-    2. Address / ZIP match (ZIP overlap when both sides have ZIPs; else fuzzy
-       address similarity; must be >= MIN_ADDRESS_MATCH when site has address/contact text)
+    2. Optional pipeline location vs registry state consistency (no street/ZIP
+       fuzzy matching — avoids HQ vs branch false negatives)
     3. No conflicting data between registry and website
 
     Calculates final_lead_score (0-100) based on:
@@ -636,50 +271,28 @@ async def consensus_node(state: LeadState) -> dict:
         logger.info(f"[{business_name}] Name match: {registry_name} vs {website_name} = {name_match:.2f}")
         execution_log.append(f"Name match score: {name_match:.2f}")
 
-        # === STEP 2: Address Matching (normalized registry vs normalized website text) ===
-        registry_address_raw = _compose_registry_address_line(registry_data)
-        website_address_raw = _compose_website_address_line(
-            extracted_signals.contact_information
+        # === STEP 2: Location sanity (registry state vs pipeline location only) ===
+        # Street/ZIP fuzzy matching vs website was removed: HQ vs branch addresses
+        # produced false rejections. ``address_match`` is kept for the schema as 1.0
+        # when we are not using website address comparison.
+        pipeline_location = state.get("location") or ""
+        state_conflict, state_conflict_detail = _pipeline_location_state_conflict(
+            getattr(registry_data, "state", None),
+            pipeline_location,
         )
-        website_contact_blob = _join_contact_values(
-            extracted_signals.contact_information
+        address_match = 1.0
+        reg_st = _registry_state_abbr(getattr(registry_data, "state", None))
+        loc_st = sorted(_state_abbrs_in_text(pipeline_location))
+        logger.info(
+            f"[{business_name}] Location check: registry_state={reg_st or '(none)'} | "
+            f"pipeline_location={_truncate_for_log(pipeline_location, 200)} | "
+            f"states_in_location={loc_st or '[]'} | conflict={state_conflict}"
         )
-        has_site_location_text = bool(
-            (website_address_raw or "").strip()
-            or (website_contact_blob or "").strip()
+        execution_log.append(
+            "Address fuzzy matching disabled (name + optional state-vs-location only)"
         )
-
-        address_zip_mismatch_detail: Optional[str] = None
-        if has_site_location_text:
-            (
-                address_match,
-                address_zip_mismatch_detail,
-                addr_diag,
-            ) = zip_focused_address_match_score(
-                registry_address_raw,
-                website_address_raw,
-                website_contact_blob,
-            )
-            _log_address_match_transparency(business_name, addr_diag, address_match)
-        else:
-            address_match = 0.5
-            logger.info(
-                f"[{business_name}] --- Address match (transparent) ---\n"
-                f"  No website location text (empty composed address and empty contact values). "
-                f"Default address score: {address_match:.2f}"
-            )
-            execution_log.append(
-                f"Address: no site text — default score {address_match:.2f}"
-            )
-
-        if has_site_location_text:
-            execution_log.append(
-                f"Address match {address_match:.2f} (path={addr_diag.decision_path}; "
-                f"registry ZIPs={addr_diag.registry_zip_codes or '[]'}; "
-                f"website ZIPs={addr_diag.website_zip_codes or '[]'})"
-            )
-
-        logger.info(f"[{business_name}] Address match score (summary): {address_match:.2f}")
+        if state_conflict and state_conflict_detail:
+            execution_log.append(f"State/location flag: {state_conflict_detail}")
 
         # === STEP 3: HARD FAIL - Industry Verification ===
         # If the website is NOT in the target industry (HVAC distribution), immediately fail
@@ -690,7 +303,7 @@ async def consensus_node(state: LeadState) -> dict:
             consensus_result = ConsensusResult(
                 lead_should_proceed=False,
                 name_match=name_match,
-                address_match=address_match,
+                address_match=1.0,
                 address_mismatch_details=None,
                 registry_website_conflict=True,
                 conflict_description="Irrelevant Industry",
@@ -728,18 +341,14 @@ async def consensus_node(state: LeadState) -> dict:
             conflict_description = f"Business name mismatch (similarity: {name_match:.2f} < {MIN_NAME_MATCH})"
             logger.warning(f"[{business_name}] {conflict_description}")
 
-        if address_match < MIN_ADDRESS_MATCH and has_site_location_text:
+        if state_conflict and state_conflict_detail:
             registry_website_conflict = True
-            if address_zip_mismatch_detail:
-                conflict_description = (
-                    f"ZIP / address mismatch ({address_zip_mismatch_detail}; "
-                    f"score {address_match:.2f} < {MIN_ADDRESS_MATCH})"
-                )
+            msg = f"State/location mismatch: {state_conflict_detail}"
+            if conflict_description:
+                conflict_description = f"{conflict_description}; {msg}"
             else:
-                conflict_description = (
-                    f"Address mismatch (similarity: {address_match:.2f} < {MIN_ADDRESS_MATCH})"
-                )
-            logger.warning(f"[{business_name}] {conflict_description}")
+                conflict_description = msg
+            logger.warning(f"[{business_name}] {msg}")
 
         # === STEP 5: Calculate Signal Score ===
         signal_score = 0
@@ -779,14 +388,14 @@ async def consensus_node(state: LeadState) -> dict:
         # Cap base signal score at 100
         base_signal_score = min(signal_score, 100)
 
-        # === STEP 6: Match Quality Bonus ===
+        # === STEP 6: Match Quality Bonus (name only; address fuzzy removed) ===
         match_bonus = 0
-        if name_match >= 0.95 and address_match >= 0.90:
+        if name_match >= 0.95:
             match_bonus = 20
-            execution_log.append("+ 20 pts: Excellent name/address match bonus")
-        elif name_match >= 0.85 and address_match >= 0.75:
+            execution_log.append("+ 20 pts: Excellent name match bonus")
+        elif name_match >= 0.85:
             match_bonus = 10
-            execution_log.append("+ 10 pts: Good name/address match bonus")
+            execution_log.append("+ 10 pts: Good name match bonus")
 
         # === STEP 7: Final Score Calculation ===
         final_lead_score = min(base_signal_score + match_bonus + registry_bonus, 100)
@@ -819,12 +428,7 @@ async def consensus_node(state: LeadState) -> dict:
             name_match=name_match,
             address_match=address_match,
             address_mismatch_details=(
-                None
-                if address_match >= MIN_ADDRESS_MATCH
-                else (
-                    address_zip_mismatch_detail
-                    or f"Address match {address_match:.2f} below {MIN_ADDRESS_MATCH}"
-                )
+                state_conflict_detail if state_conflict else None
             ),
             registry_website_conflict=registry_website_conflict,
             conflict_description=conflict_description,
@@ -834,9 +438,8 @@ async def consensus_node(state: LeadState) -> dict:
             final_lead_score=final_lead_score,
             drop_reason=drop_reason,
             validation_notes=(
-                f"Matching: name={name_match:.2f}, address={address_match:.2f} "
-                f"(ZIP-first when both sides have ZIPs; else max of full-address "
-                f"and street-core fuzzy)"
+                f"Matching: name={name_match:.2f}; address_line_match disabled (1.0); "
+                f"registry vs pipeline state check: {'fail' if state_conflict else 'ok'}"
             ),
             recommended_follow_up="Proceed to enrichment" if lead_should_proceed else "Manual review recommended",
         )
