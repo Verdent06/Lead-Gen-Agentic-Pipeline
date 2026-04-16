@@ -53,7 +53,7 @@ async def discovery_node(state: LeadState) -> dict:
         search_results = await tavily_service.search(
             query=registry_search_query,
             include_answer=True,
-            num_results=10,
+            num_results=20,
             topic="general",
         )
 

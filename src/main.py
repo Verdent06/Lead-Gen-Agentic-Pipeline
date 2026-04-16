@@ -3,9 +3,12 @@
 import asyncio
 import csv
 import logging
+import math
 import os
+import re
 import time
-from typing import Optional
+from urllib.parse import urlparse
+from typing import Any, Optional
 from src.models.state import LeadState
 from src.models.schemas import FinalLeadOutput
 from src.graph import build_graph
@@ -152,71 +155,246 @@ async def run_sourcing_agent(
         )
 
 
-async def discover_businesses(macro_query: str) -> List[DiscoveredBusiness]:
-    """Use Tavily and LLM to find a list of businesses matching the macro-query."""
+async def discover_businesses(
+    search_query: str, extraction_instructions: str, num_results_per_query: int = 20
+) -> List[DiscoveredBusiness]:
+    """Use Tavily fan-out + deterministic dedupe + LLM extraction to find businesses."""
     from src.services.tavily_service import get_tavily_service
     from src.services.llm_service import get_llm_service
-    
-    logger.info(f"Running batch discovery for macro-query: {macro_query}")
+
+    def _normalize_url(url: str) -> str:
+        if not url:
+            return ""
+        raw = str(url).strip()
+        if not raw:
+            return ""
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        host = (parsed.netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = (parsed.path or "").rstrip("/")
+        return f"{host}{path}"
+
+    def _normalize_text_key(text: str) -> str:
+        t = re.sub(r"[^a-z0-9\s]", " ", str(text).lower())
+        return " ".join(t.split())
+
+    def _result_key(item: dict[str, Any]) -> str:
+        u = _normalize_url(item.get("url", ""))
+        if u:
+            return f"url::{u}"
+        title = _normalize_text_key(item.get("title", ""))
+        content = _normalize_text_key(item.get("content", ""))[:220]
+        return f"text::{title}::{content}"
+
+    def _biz_key(name: str, location: str) -> str:
+        # Dedupe by normalized legal-ish name + location.
+        n = _normalize_text_key(name)
+        n = re.sub(r"\b(inc|llc|ltd|co|corp|corporation|company)\b", " ", n)
+        n = " ".join(n.split())
+        l = _normalize_text_key(location)
+        return f"{n}::{l}"
+
+    def _extract_target_count(instructions: str, default: int = 30) -> int:
+        s = str(instructions or "").lower()
+        patterns = [
+            r"(?:maximum|max)\s+of\s+(\d+)",
+            r"up to\s+(\d+)",
+            r"extract\s+(\d+)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s)
+            if m:
+                return int(m.group(1))
+        return default
+
+    logger.info(f"Running batch discovery — base Tavily search query: {search_query}")
     tavily = await get_tavily_service()
     llm = await get_llm_service()
-    
-    # Search Tavily
-    search_results = await tavily.search(
-        query=macro_query,
-        include_answer=True,
-        num_results=50,
-        topic="general",
-        search_depth="advanced"
-    )
-    
-    # Format results for LLM
-    context = "Tavily Search Results:\n"
-    if search_results.get("answer"):
-        context += f"Summary: {search_results['answer']}\n\n"
-    
-    for i, res in enumerate(search_results.get("results", [])):
-        context += f"Result {i+1}:\nTitle: {res.get('title')}\nContent: {res.get('content')}\n\n"
-        
-    prompt = f"""Extract all real businesses mentioned in the search results that match the query: '{macro_query}'.
-For each business, extract:
-- Business name (exact name from the results)
-- Location (city, state or country)
 
-Return the data strictly matching the requested JSON schema.
-Do not return raw arrays - return the exact JSON object structure specified in the schema."""
-    
+    keyword_variants = [
+        "hvac distributors",
+        "hvac wholesalers",
+        "hvac supply houses",
+        "mechanical equipment distributors",
+    ]
+    city_variants = [
+        "ohio",
+        "cleveland ohio",
+        "columbus ohio",
+        "cincinnati ohio",
+        "dayton ohio",
+        "toledo ohio",
+        "akron ohio",
+    ]
+
+    queries: list[str] = [search_query]
+    for kw in keyword_variants:
+        for city in city_variants:
+            queries.append(f"{kw} {city}")
+    # Preserve order, remove duplicates
+    queries = list(dict.fromkeys(q.strip() for q in queries if q and q.strip()))
+
+    requested_per_query = max(1, int(num_results_per_query))
+    target_businesses = _extract_target_count(extraction_instructions, default=30)
+    # Conservative priors for planning before we observe this run.
+    assumed_docs_per_query = max(10, int(requested_per_query * 0.35))
+    assumed_doc_unique_ratio = 0.55
+    assumed_biz_per_unique_doc = 0.12
+    estimated_unique_docs_needed = math.ceil(target_businesses / assumed_biz_per_unique_doc)
+    estimated_raw_docs_needed = math.ceil(estimated_unique_docs_needed / assumed_doc_unique_ratio)
+    planned_query_count = max(1, math.ceil(estimated_raw_docs_needed / assumed_docs_per_query))
+    planned_query_count = min(planned_query_count, len(queries))
+    active_queries = queries[:planned_query_count]
+
+    logger.info(
+        "Discovery planning: "
+        f"target_businesses={target_businesses}, requested_per_query={requested_per_query}, "
+        f"candidate_queries={len(queries)}, planned_queries={len(active_queries)}, "
+        f"estimated_raw_docs_needed={estimated_raw_docs_needed}, "
+        f"estimated_unique_docs_needed={estimated_unique_docs_needed}"
+    )
+
+    search_jobs = [
+        tavily.search(
+            query=q,
+            include_answer=True,
+            num_results=requested_per_query,
+            topic="general",
+            search_depth="basic",
+        )
+        for q in active_queries
+    ]
+    search_payloads = await asyncio.gather(*search_jobs, return_exceptions=True)
+
+    aggregated_results: list[dict[str, Any]] = []
+    summaries: list[str] = []
+    per_query_return_counts: list[int] = []
+    for i, payload in enumerate(search_payloads):
+        if isinstance(payload, Exception):
+            logger.warning(f"Discovery Tavily query failed: {active_queries[i]} ({payload})")
+            per_query_return_counts.append(0)
+            continue
+        per_query_return_counts.append(len(payload.get("results", [])))
+        ans = payload.get("answer")
+        if ans:
+            summaries.append(str(ans).strip())
+        for item in payload.get("results", []):
+            if isinstance(item, dict):
+                aggregated_results.append(item)
+
+    deduped_result_map: dict[str, dict[str, Any]] = {}
+    for item in aggregated_results:
+        key = _result_key(item)
+        if key not in deduped_result_map:
+            deduped_result_map[key] = item
+            continue
+        old_score = deduped_result_map[key].get("score", 0.0) or 0.0
+        new_score = item.get("score", 0.0) or 0.0
+        if new_score > old_score:
+            deduped_result_map[key] = item
+
+    deduped_results = list(deduped_result_map.values())
+    raw_count = len(aggregated_results)
+    unique_count = len(deduped_results)
+    observed_avg_docs_per_query = (
+        (sum(per_query_return_counts) / len(per_query_return_counts)) if per_query_return_counts else 0.0
+    )
+    observed_return_ratio = (
+        (observed_avg_docs_per_query / requested_per_query) if requested_per_query else 0.0
+    )
+    observed_doc_unique_ratio = (unique_count / raw_count) if raw_count else 0.0
+    logger.info(
+        "Discovery Tavily aggregation: "
+        f"{raw_count} raw results → {unique_count} deduped results; "
+        f"avg_docs_per_query={observed_avg_docs_per_query:.1f}/{requested_per_query} "
+        f"(return_ratio={observed_return_ratio:.2f}), "
+        f"doc_unique_ratio={observed_doc_unique_ratio:.2f}"
+    )
+    if observed_avg_docs_per_query < requested_per_query:
+        logger.info(
+            "Tavily returned fewer documents than requested per query. "
+            "Planning and yield math now uses observed return counts instead of assuming max_results is always met."
+        )
+    if unique_count < estimated_unique_docs_needed:
+        logger.info(
+            "Discovery context below estimated target coverage: "
+            f"unique_docs={unique_count} vs estimated_needed={estimated_unique_docs_needed}. "
+            "Consider adding more city/keyword variants."
+        )
+
+    context = "Tavily Search Results:\n"
+    for i, s in enumerate(summaries[:8], 1):
+        context += f"Summary {i}: {s}\n"
+    if summaries:
+        context += "\n"
+
+    for i, res in enumerate(deduped_results):
+        context += f"Result {i+1}:\nTitle: {res.get('title')}\nContent: {res.get('content')}\n\n"
+
+    prompt = f"{extraction_instructions}\n\nExtract the businesses from the following context:\n\n{context}"
+
     extracted = await llm.extract_structured(
         prompt=prompt,
         response_model=BusinessList,
-        context=context
+        context="",
     )
     
     if extracted and extracted.businesses:
-        logger.info(f"Discovered {len(extracted.businesses)} businesses.")
-        return extracted.businesses
+        deduped_businesses: list[DiscoveredBusiness] = []
+        seen: set[str] = set()
+        for b in extracted.businesses:
+            key = _biz_key(b.business_name, b.location)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_businesses.append(b)
+        observed_biz_per_unique_doc = (
+            (len(deduped_businesses) / unique_count) if unique_count else 0.0
+        )
+        projected_unique_docs_for_target = (
+            math.ceil(target_businesses / observed_biz_per_unique_doc)
+            if observed_biz_per_unique_doc > 0
+            else None
+        )
+        logger.info(
+            f"Discovered {len(extracted.businesses)} businesses from LLM; "
+            f"{len(deduped_businesses)} after business dedupe. "
+            f"Observed biz_per_unique_doc={observed_biz_per_unique_doc:.3f}"
+        )
+        if projected_unique_docs_for_target:
+            logger.info(
+                "Discovery projection from current run: "
+                f"target={target_businesses} would need ~{projected_unique_docs_for_target} unique docs "
+                "at this observed extraction yield."
+            )
+        return deduped_businesses
     else:
         logger.warning("No businesses discovered or extraction failed.")
         return []
 
-async def run_batch_pipeline(macro_query: str):
+async def run_batch_pipeline(
+    search_query: str,
+    extraction_instructions: str,
+    num_results_per_query: int = 20,
+):
     """Run the pipeline concurrently for a list of discovered businesses."""
-    businesses = await discover_businesses(macro_query)
-    
+    businesses = await discover_businesses(
+        search_query, extraction_instructions, num_results_per_query=num_results_per_query
+    )
+
     if not businesses:
         logger.error("No businesses found to process.")
         return []
-        
+
     logger.info(f"Starting concurrent processing for {len(businesses)} businesses...")
-    
-    # Create tasks for each business
+
     tasks = []
     for biz in businesses:
-        # Pass the macro_query as the query context for each run
         task = run_sourcing_agent(
-            query=macro_query,
+            query=extraction_instructions,
             business_name=biz.business_name,
-            location=biz.location
+            location=biz.location,
         )
         tasks.append(task)
         
@@ -263,10 +441,16 @@ def export_qualified_leads(results: list, filename: str = "qualified_leads.csv")
 
 async def main():
     """Main entry point with batch query."""
-    macro_query = "List 30 independent HVAC distributors in Ohio. Do not include merged companies. List unique entities only."
-    
-    # Run the batch agent
-    results = await run_batch_pipeline(macro_query)
+    search_query = "directory list of HVAC distributors, wholesalers, and supply houses in Ohio"
+    extraction_instructions = (
+        "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. "
+        "Do NOT include merged companies. List unique entities only."
+    )
+    num_results_per_query = 20
+
+    results = await run_batch_pipeline(
+        search_query, extraction_instructions, num_results_per_query=num_results_per_query
+    )
     
     # Print summary
     print("\n" + "=" * 70)

@@ -21,7 +21,7 @@ class TavilyService:
         self,
         query: str,
         include_answer: bool = True,
-        num_results: int = 10,
+        num_results: int = 20,
         topic: str = "general",
         search_depth: str = "basic",
     ) -> Dict[str, Any]:
@@ -31,7 +31,7 @@ class TavilyService:
         Args:
             query: Search query
             include_answer: Whether to include AI-generated answer
-            num_results: Number of results to return
+            num_results: Number of results to return (sent as max_results in the API payload)
             topic: Search topic (general, news, etc.)
             search_depth: Search depth level (basic or advanced)
 
@@ -48,7 +48,7 @@ class TavilyService:
                     "api_key": self.api_key,
                     "query": query,
                     "include_answer": include_answer,
-                    "num_results": num_results,
+                    "max_results": num_results,
                     "topic": topic,
                     "search_depth": search_depth,
                 }
