@@ -11,13 +11,9 @@ from src.models.schemas import ConsensusResult
 
 logger = logging.getLogger(__name__)
 
-# Scoring configuration
-SIGNAL_SCORES = {
-    "no_ecommerce": 25,  # Positive signal: no modern e-commerce
-    "legacy_software": 20,  # Positive signal: legacy tech = manual processes
-    "succession_planning": 20,  # Positive signal: potential ownership transition
-    "owner_retirement": 25,  # Positive signal: owner considering retirement
-}
+# Dynamic signal scoring (Node 3): thesis-defined signals from Node 2 carry confidence 0–1.
+POINTS_PER_DETECTED_SIGNAL = 25  # Weight for a fully confident detected signal
+MAX_BASE_SIGNAL_SCORE = 90  # Cap on thesis-signal contribution before registry/name bonuses
 
 MIN_NAME_MATCH = 0.70  # Minimum fuzzy match for business names
 CONSENSUS_THRESHOLD = 70  # Final score must be >= this to pass
@@ -179,9 +175,9 @@ async def consensus_node(state: LeadState) -> dict:
     3. No conflicting data between registry and website
 
     Calculates final_lead_score (0-100) based on:
-    - Signal presence from Node 2
-    - Match quality bonuses
-    - Registry status validation
+    - Thesis signal rows from Node 2 (25 × confidence per detected signal, base capped at 90)
+    - Name match bonus
+    - Registry status validation bonus
 
     If validation fails, drops lead with reason.
 
@@ -350,43 +346,34 @@ async def consensus_node(state: LeadState) -> dict:
                 conflict_description = msg
             logger.warning(f"[{business_name}] {msg}")
 
-        # === STEP 5: Calculate Signal Score ===
-        signal_score = 0
-        signal_scoring = {}
+        # === STEP 5: Calculate Signal Score (thesis signals × confidence, capped) ===
+        signal_scoring: Dict[str, int] = {}
+        sum_signal_points = 0
+        used_keys: Set[str] = set()
 
-        # Award points for positive signals
-        if not extracted_signals.has_ecommerce_store.detected:
-            points = SIGNAL_SCORES["no_ecommerce"]
-            signal_score += points
-            signal_scoring["no_ecommerce"] = points
-            execution_log.append(f"+ {points} pts: No e-commerce store detected")
-
-        if extracted_signals.legacy_software_mentions.detected:
-            points = SIGNAL_SCORES["legacy_software"]
-            signal_score += points
-            signal_scoring["legacy_software"] = points
+        for i, sig in enumerate(extracted_signals.signals or []):
+            if not sig.detected:
+                continue
+            pts = int(round(POINTS_PER_DETECTED_SIGNAL * float(sig.confidence)))
+            base_name = (sig.signal_name or "").strip() or f"signal_{i}"
+            key = base_name
+            suffix = 1
+            while key in used_keys:
+                suffix += 1
+                key = f"{base_name}_{suffix}"
+            used_keys.add(key)
+            signal_scoring[key] = pts
+            sum_signal_points += pts
+            ev = (sig.evidence or "")[:80]
             execution_log.append(
-                f"+ {points} pts: Legacy software mentioned (evidence: {extracted_signals.legacy_software_mentions.evidence[:50]}...)"
+                f"+ {pts} pts: '{base_name}' (conf={sig.confidence:.2f}) — {ev}{'...' if len(sig.evidence or '') > 80 else ''}"
             )
 
-        if extracted_signals.succession_planning_signals.detected:
-            points = SIGNAL_SCORES["succession_planning"]
-            signal_score += points
-            signal_scoring["succession_planning"] = points
+        base_signal_score = min(sum_signal_points, MAX_BASE_SIGNAL_SCORE)
+        if sum_signal_points > MAX_BASE_SIGNAL_SCORE:
             execution_log.append(
-                f"+ {points} pts: Succession planning signals detected"
+                f"Base signal score capped: sum_signals={sum_signal_points} → {base_signal_score} (max {MAX_BASE_SIGNAL_SCORE})"
             )
-
-        if extracted_signals.owner_retirement_mentions.detected:
-            points = SIGNAL_SCORES["owner_retirement"]
-            signal_score += points
-            signal_scoring["owner_retirement"] = points
-            execution_log.append(
-                f"+ {points} pts: Owner retirement mentions detected"
-            )
-
-        # Cap base signal score at 100
-        base_signal_score = min(signal_score, 100)
 
         # === STEP 6: Match Quality Bonus (name only; address fuzzy removed) ===
         match_bonus = 0

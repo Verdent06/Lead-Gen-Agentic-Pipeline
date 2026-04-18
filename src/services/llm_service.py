@@ -110,8 +110,38 @@ Content to extract from:
 
     def _mock_response(self, response_model: Type[T]) -> T:
         """Generate mock response matching Pydantic schema (for testing)."""
+        from src.models.schemas import WebsiteSignals, DetectedSignal
+
+        if response_model is WebsiteSignals:
+            return WebsiteSignals(
+                website_url="https://example-hvac-mock.test",
+                website_reachable=True,
+                signals=[
+                    DetectedSignal(
+                        signal_name="modern_b2b_portal",
+                        detected=True,
+                        confidence=0.9,
+                        evidence="Contractor login and online ordering referenced on homepage.",
+                    ),
+                    DetectedSignal(
+                        signal_name="recent_acquisition",
+                        detected=False,
+                        confidence=0.25,
+                        evidence="No press or site copy about M&A in provided markdown.",
+                    ),
+                    DetectedSignal(
+                        signal_name="succession_or_multigenerational",
+                        detected=True,
+                        confidence=0.78,
+                        evidence="Family-owned since 1972; second generation leadership mentioned.",
+                    ),
+                ],
+                business_name_from_site="Example Company Corp",
+                is_target_industry=True,
+                industry_evidence="HVAC wholesale distributor serving contractors (mock).",
+                extraction_confidence=0.86,
+            )
         try:
-            # Try to create with no args (schema-dependent)
             return response_model()
         except Exception:
             return None

@@ -18,10 +18,7 @@ async def web_crawler_node(state: LeadState) -> dict:
     Uses LLM to extract hidden signals from Markdown with strict Pydantic validation.
 
     Signals extracted:
-    - E-commerce presence
-    - Legacy software mentions
-    - Succession planning signals
-    - Owner information and retirement mentions
+    - Dynamic list (3–5) aligned to the batch ``investment_thesis`` in state
 
     Args:
         state: Current LeadState from graph
@@ -67,8 +64,25 @@ async def web_crawler_node(state: LeadState) -> dict:
         # Extract signals using LLM with strict Pydantic validation
         llm_service = await get_llm_service()
 
+        investment_thesis = (state.get("investment_thesis") or "").strip()
+        if not investment_thesis:
+            investment_thesis = (
+                "Independent HVAC distributors and wholesalers where operational maturity, "
+                "ownership transition, or lack of modern digital sales may indicate strategic fit."
+            )
+
         extraction_prompt = f"""
 Analyze the following website content for hidden business signals AND VERIFY THE INDUSTRY.
+
+=== INVESTMENT THESIS (PRIMARY LENS FOR SIGNALS) ===
+{investment_thesis}
+
+Based on this Investment Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals
+to look for on this website (e.g. recent acquisitions, modern B2B e-commerce, expansion capex,
+succession language, integration of a target platform). For EACH signal, output exactly one object
+in the JSON field `signals` with: signal_name (short snake_case or clear label), detected (bool),
+confidence (0.0–1.0), and evidence (direct support from the markdown below). Use conservative
+confidence; only set detected=true when the page clearly supports it.
 
 CRITICAL NAME EXTRACTION: You MUST extract the ACTUAL business name as it appears in the website markdown (headers, title, about text, footer). DO NOT use placeholder names, and DO NOT hallucinate. If the website says "Duncan Supply", output "Duncan Supply". If it says "Behler-Young Co.", output that exact string. The business_name_from_site field must match what is written on this page, not any name from elsewhere in the pipeline.
 
@@ -83,25 +97,16 @@ CRITICAL: Industry Verification - HVAC SUPPLY EQUALS HVAC DISTRIBUTOR
 - Look for keywords like: "HVAC supplies", "heating cooling", "air conditioning supplier", "HVAC wholesale", "duct", "compressor", "refrigerant", "furnace", "HVAC equipment", "ductless", "heat pump", "contractor supply", "wholesale distributor", etc.
 - SEMANTIC SYNONYMS: In this industry, 'HVAC Supply', 'HVAC Parts Supplier', and 'HVAC Wholesaler' mean the EXACT SAME THING as an HVAC Distributor. If the website indicates they are a supply company selling HVAC equipment, ACCEPT them.
 
-Look for these business signals:
-1. E-commerce store presence (Shopify, WooCommerce, custom platform, none)
-2. Legacy software mentions (Flash, old ASP.NET, outdated technology)
-3. Succession planning signals (family members in business, ownership transition discussions)
-4. Owner retirement mentions (age references, retirement timeline)
-5. Business size indicators from content
-6. Contact information and owner details
-7. Team size indicators
-8. Domain Redirect: If this page clearly states the website has moved to a new domain, extract the new URL.
+Also extract where applicable:
+- Business size indicators, team size hints, contact information, owner details
+- Domain Redirect: If this page clearly states the website has moved to a new domain, extract the new URL in new_domain_redirect
 
 Website Content (Markdown):
 ---
 {website_markdown}
 ---
 
-For each signal, provide:
-- Detected (true/false)
-- Confidence (0.0-1.0)
-- Direct evidence from the text
+The `signals` array MUST contain between 3 and 5 entries (inclusive), each corresponding to one thesis criterion you are evaluating.
 
 INDUSTRY DETERMINATION:
 - is_target_industry: Set to true if the website clearly operates in HVAC supply/distribution. Set to false ONLY if they are NOT in HVAC at all.
@@ -114,14 +119,17 @@ INDUSTRY DETERMINATION:
         extracted_signals = await llm_service.extract_structured(
             prompt=extraction_prompt,
             response_model=WebsiteSignals,
-            context="Extract business signals from website content. Be conservative - only flag signals with strong evidence (0.7+ confidence).",
+            context=(
+                "Extract WebsiteSignals from markdown. Populate `signals` with 3-5 thesis-aligned rows. "
+                "Be conservative: only detected=true with solid on-page evidence."
+            ),
         )
 
         if extracted_signals:
+            det = [s.signal_name for s in (extracted_signals.signals or []) if s.detected]
             execution_log.append(
-                f"Website signals extracted: e-commerce={extracted_signals.has_ecommerce_store.detected}, "
-                f"legacy_tech={extracted_signals.legacy_software_mentions.detected}, "
-                f"succession={extracted_signals.succession_planning_signals.detected}"
+                f"Website signals extracted: {len(extracted_signals.signals or [])} thesis rows, "
+                f"detected_true={det}"
             )
             website_crawl_success = True
         else:

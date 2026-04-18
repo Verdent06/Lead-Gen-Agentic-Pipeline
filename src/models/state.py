@@ -31,6 +31,9 @@ class LeadState(TypedDict, total=False):
     website_url: Optional[str]
     """Known or discovered business website URL"""
 
+    investment_thesis: Optional[str]
+    """Buyer/investor thesis passed to Node 2 to shape dynamic signal extraction"""
+
     # === Node 1: Discovery & State Registry Check ===
     registry_search_query: Optional[str]
     """Refined Tavily search query constructed from query + location"""

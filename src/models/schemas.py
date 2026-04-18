@@ -81,24 +81,26 @@ class WebsiteDiscovery(BaseModel):
     )
 
 
-class SignalCategory(BaseModel):
-    """Individual extracted signal with evidence."""
+class DetectedSignal(BaseModel):
+    """One thesis-aligned signal extracted from the website (Node 2)."""
 
-    signal_name: str = Field(..., description="Name of the signal (e.g., 'has_ecommerce')")
+    signal_name: str = Field(
+        ...,
+        description="Short label for the signal (e.g. 'recent_acquisition', 'modern_b2b_portal')",
+    )
 
-    detected: bool = Field(..., description="Whether signal is present")
+    detected: bool = Field(..., description="Whether this signal is present on the site")
 
     confidence: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="LLM confidence in detection (0.0-1.0)",
+        description="Model confidence that the signal is present (0.0-1.0)",
     )
 
-    evidence: str = Field(..., description="Extracted text/context supporting the signal")
-
-    raw_location: Optional[str] = Field(
-        default=None, description="Where on website this was found (e.g., 'homepage footer')"
+    evidence: str = Field(
+        ...,
+        description="Quoted or closely paraphrased support from the page markdown",
     )
 
 
@@ -114,26 +116,12 @@ class WebsiteSignals(BaseModel):
         ..., description="Whether website was successfully crawled"
     )
 
-    has_ecommerce_store: SignalCategory = Field(
-        ..., description="Does business have functional e-commerce?"
-    )
-
-    ecommerce_platform: Optional[str] = Field(
-        default=None,
-        description="Platform detected (Shopify, WooCommerce, custom, etc.)",
-    )
-
-    legacy_software_mentions: SignalCategory = Field(
-        ..., description="Mentions of outdated/legacy tech (Flash, old ASP, etc.)"
-    )
-
-    succession_planning_signals: SignalCategory = Field(
+    signals: List[DetectedSignal] = Field(
         ...,
-        description="Signs of succession planning (family members, ownership transition, etc.)",
-    )
-
-    owner_retirement_mentions: SignalCategory = Field(
-        ..., description="References to owner age, retirement, or succession"
+        description=(
+            "3-5 signals aligned to the investment thesis for this crawl. "
+            "Each row is one verifiable thesis criterion evaluated against the markdown."
+        ),
     )
 
     business_size_indicator: Optional[str] = Field(
@@ -175,11 +163,6 @@ class WebsiteSignals(BaseModel):
 
     years_in_business: Optional[int] = Field(
         default=None, description="Business vintage/age if stated on site"
-    )
-
-    additional_signals: Optional[List[SignalCategory]] = Field(
-        default=None,
-        description="Other custom signals extracted (expand as needed per use case)",
     )
 
     is_target_industry: bool = Field(
@@ -242,7 +225,7 @@ class ConsensusResult(BaseModel):
 
     signal_scoring: Dict[str, int] = Field(
         ...,
-        description="Points awarded for each detected signal (e.g., {'no_ecommerce': 20, 'legacy_tech': 15})",
+        description="Per-signal contribution toward base score (signal_name → points, before 90-cap)",
     )
 
     base_signal_score: int = Field(
@@ -253,7 +236,7 @@ class ConsensusResult(BaseModel):
         ...,
         ge=0,
         le=20,
-        description="Bonus points for high name/address match confidence (0-20)",
+        description="Bonus points for high name match quality (0-20)",
     )
 
     final_lead_score: int = Field(

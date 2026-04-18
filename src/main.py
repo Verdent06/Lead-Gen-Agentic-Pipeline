@@ -36,6 +36,7 @@ async def run_sourcing_agent(
     business_name: str,
     location: str,
     website_url: Optional[str] = None,
+    investment_thesis: Optional[str] = None,
 ) -> FinalLeadOutput:
     """
     Execute the complete autonomous sourcing agent pipeline.
@@ -51,6 +52,7 @@ async def run_sourcing_agent(
         business_name: Business name to investigate
         location: Geographic location (city, state, region)
         website_url: Optional known website URL (otherwise derived)
+        investment_thesis: Buyer thesis; shapes dynamic signals in Node 2
 
     Returns:
         FinalLeadOutput with complete lead information and scoring
@@ -71,6 +73,7 @@ async def run_sourcing_agent(
             "business_name": business_name,
             "location": location,
             "website_url": website_url,
+            "investment_thesis": investment_thesis,
             "execution_log": ["Pipeline started"],
             "node_timestamps": {},
             "errors_encountered": [],
@@ -376,6 +379,7 @@ async def discover_businesses(
 async def run_batch_pipeline(
     search_query: str,
     extraction_instructions: str,
+    investment_thesis: str,
     num_results_per_query: int = 20,
 ):
     """Run the pipeline concurrently for a list of discovered businesses."""
@@ -395,6 +399,7 @@ async def run_batch_pipeline(
             query=extraction_instructions,
             business_name=biz.business_name,
             location=biz.location,
+            investment_thesis=investment_thesis,
         )
         tasks.append(task)
         
@@ -447,9 +452,17 @@ async def main():
         "Do NOT include merged companies. List unique entities only."
     )
     num_results_per_query = 20
+    investment_thesis = (
+        "We are looking for high-growth B2B HVAC distributors that may have recently acquired "
+        "other branches or competitors and are investing in a modern contractor-facing e-commerce "
+        "or ordering experience, with optional signs of ownership transition."
+    )
 
     results = await run_batch_pipeline(
-        search_query, extraction_instructions, num_results_per_query=num_results_per_query
+        search_query,
+        extraction_instructions,
+        investment_thesis,
+        num_results_per_query=num_results_per_query,
     )
     
     # Print summary

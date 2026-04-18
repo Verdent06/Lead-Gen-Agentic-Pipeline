@@ -81,6 +81,10 @@ async def quick_start():
             query="Find HVAC distributors in Ohio without e-commerce",
             business_name="Example Company Corp",
             location="Cleveland, Ohio",
+            investment_thesis=(
+                "Distributors where lack of modern e-commerce and operational legacy may indicate "
+                "a strategic modernization or partnership opportunity."
+            ),
         )
 
         print("\n    ✓ Pipeline executed successfully!")
@@ -124,9 +128,9 @@ async def main():
         print("     export USE_MOCKS=false")
         print("     python -m src.main")
         print("\n  3. Customize for your use case:")
-        print("     - Adjust SIGNAL_SCORES in src/nodes/consensus.py")
-        print("     - Update signal extraction prompts in src/nodes/web_crawler.py")
-        print("     - Add custom signals to WebsiteSignals in src/models/schemas.py")
+        print("     - Tune POINTS_PER_DETECTED_SIGNAL / MAX_BASE_SIGNAL_SCORE in src/nodes/consensus.py")
+        print("     - Pass investment_thesis into run_batch_pipeline / run_sourcing_agent")
+        print("     - Adjust Node 2 extraction prompt in src/nodes/web_crawler.py")
     else:
         print("✗ QUICK START FAILED - See errors above")
         sys.exit(1)
