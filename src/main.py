@@ -417,6 +417,44 @@ async def run_batch_pipeline(
     return successful_results
 
 
+_QUALIFIED_LEADS_HEADERS = [
+    "Business Name",
+    "Website",
+    "Lead Score",
+    "Contact Name",
+    "Contact Email",
+    "Job Title",
+]
+
+
+def _qualified_leads_csv_has_header(path: str) -> bool:
+    """True if the file exists, is non-empty, and its first row matches our header."""
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return False
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            row = next(csv.reader(f), None)
+        return row == _QUALIFIED_LEADS_HEADERS
+    except (OSError, StopIteration):
+        return False
+
+
+def _qualified_leads_csv_prepend_header_if_missing(path: str) -> None:
+    """If the CSV has data but no header row, rewrite once with the standard header."""
+    if _qualified_leads_csv_has_header(path):
+        return
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return
+    with open(path, newline="", encoding="utf-8") as f:
+        existing = list(csv.reader(f))
+    if not existing:
+        return
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(_QUALIFIED_LEADS_HEADERS)
+        w.writerows(existing)
+
+
 def export_qualified_leads(results: list, filename: str = "qualified_leads.csv"):
     """Export qualified leads that passed consensus to a CSV file."""
     # Filter for leads that passed consensus
@@ -424,23 +462,32 @@ def export_qualified_leads(results: list, filename: str = "qualified_leads.csv")
     if not qualified:
         print("\n[EXPORT] No leads passed consensus in this batch. CSV not updated.")
         return
-    
-    headers = ["Business Name", "Website", "Lead Score", "Contact Name", "Contact Email", "Job Title"]
-    file_exists = os.path.isfile(filename)
-    
-    with open(filename, mode='a', newline='', encoding='utf-8') as f:
+
+    _qualified_leads_csv_prepend_header_if_missing(filename)
+
+    new_rows = []
+    for lead in qualified:
+        c_name = (
+            f"{lead.primary_contact.first_name or ''} {lead.primary_contact.last_name or ''}".strip()
+            if lead.primary_contact
+            else "N/A"
+        )
+        c_email = lead.primary_contact.email if lead.primary_contact else "N/A"
+        c_title = lead.primary_contact.job_title if lead.primary_contact else "N/A"
+        website = (
+            lead.registry_verification.official_website_url
+            if (lead.registry_verification and lead.registry_verification.official_website_url)
+            else "N/A"
+        )
+        new_rows.append([lead.business_name, website, lead.lead_score, c_name, c_email, c_title])
+
+    file_empty = not os.path.isfile(filename) or os.path.getsize(filename) == 0
+    with open(filename, mode="a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(headers)
-            
-        for lead in qualified:
-            c_name = f"{lead.primary_contact.first_name or ''} {lead.primary_contact.last_name or ''}".strip() if lead.primary_contact else "N/A"
-            c_email = lead.primary_contact.email if lead.primary_contact else "N/A"
-            c_title = lead.primary_contact.job_title if lead.primary_contact else "N/A"
-            website = lead.registry_verification.official_website_url if (lead.registry_verification and lead.registry_verification.official_website_url) else "N/A"
-            
-            writer.writerow([lead.business_name, website, lead.lead_score, c_name, c_email, c_title])
-            
+        if file_empty:
+            writer.writerow(_QUALIFIED_LEADS_HEADERS)
+        writer.writerows(new_rows)
+
     print(f"\n[EXPORT] ✅ Successfully appended {len(qualified)} highly qualified leads to {filename}")
 
 
@@ -454,8 +501,8 @@ async def main():
     num_results_per_query = 20
     investment_thesis = (
         "We are looking for high-growth B2B HVAC distributors that may have recently acquired "
-        "other branches or competitors and are investing in a modern contractor-facing e-commerce "
-        "or ordering experience, with optional signs of ownership transition."
+        "other branches or competitors and are insignsvesting in a modern contractor-facing e-commerce "
+        "or ordering experience, with optional  of ownership transition."
     )
 
     results = await run_batch_pipeline(
