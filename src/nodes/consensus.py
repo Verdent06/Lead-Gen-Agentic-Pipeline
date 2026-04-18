@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 POINTS_PER_DETECTED_SIGNAL = 25  # Weight for a fully confident detected signal
 MAX_BASE_SIGNAL_SCORE = 90  # Cap on thesis-signal contribution before registry/name bonuses
 
-MIN_NAME_MATCH = 0.70  # Minimum fuzzy match for business names
+MIN_NAME_MATCH = 0.60  # Minimum fuzzy match for business names
 CONSENSUS_THRESHOLD = 70  # Final score must be >= this to pass
 
 # Truncate long blobs in logs (contact JSON can be huge)
