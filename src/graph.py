@@ -51,7 +51,7 @@ def build_graph() -> StateGraph:
     Build and compile the complete LangGraph pipeline.
 
     Graph structure:
-        START
+        START(main.py)
           ↓
         Node 1: Discovery (Registry Check)
           ├→ Active/Unknown/Not Found → Node 2: Web Crawler (Signal Extraction)

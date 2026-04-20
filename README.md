@@ -1,77 +1,129 @@
-"""
-Autonomous Sourcing Agent for B2B Lead Generation
+# Lead-Gen Agentic Pipeline
 
-A production-ready LangGraph pipeline that replaces static B2B databases (like ZoomInfo)
-for high-ticket buyers. Uses deterministic orchestration, LLM-powered extraction, and
-triangulated consensus scoring to identify and enrich unstructured B2B leads.
+Autonomous B2B sourcing agent built on **LangGraph**: discover companies from the web, verify registry context, crawl the site for buyer-specific signals, score with deterministic consensus, then enrich contacts with **Hunter.io**.
 
-Architecture:
-  Node 1: Discovery & State Registry Check (Tavily)
-  Node 2: Dynamic Website Crawler & Signal Extraction (Crawl4AI + Gemini)
-  Node 3: Triangulated Consensus & Scoring (Deterministic Python)
-  Node 4: Enrichment with Contacts (Hunter.io)
+## Current status
 
-Tech Stack:
-  - LangGraph: State orchestration and graph routing
-  - Pydantic v2: Strict schema validation
-  - Google Gemini: LLM with structured output
-  - Crawl4AI: Local headless Playwright for DOM-to-Markdown conversion
-  - Tavily: Web search for state registries
-  - Hunter.io: Email/contact enrichment
-"""
 
-# Project Initialization
+| Area                 | Status                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Four-node graph**  | Implemented: Discovery → Web crawler → Consensus → Enrichment (conditional routing).                                                                   |
+| **Batch mode**       | Default entrypoint runs **Tavily fan-out discovery** → **concurrent** `run_sourcing_agent` per business → **CSV export** of consensus-qualified leads. |
+| **Single-lead mode** | Supported via `run_sourcing_agent(...)` (library or custom script).                                                                                    |
+| **LLM providers**    | **Grok (xAI)** default, or **Google Gemini**, or **local Ollama** (`LLM_PROVIDER`).                                                                    |
+| **Mocks**            | `USE_MOCKS=true` for Tavily, Crawl4AI, Hunter, and LLM (no real API keys).                                                                             |
+| **Tests**            | `tests/` currently has package scaffolding only; run `pytest` when you add tests.                                                                      |
+| **Config**           | Loaded from `**.env.local`** (see [Configuration](#configuration)).                                                                                    |
+
+
+## Architecture
+
+```text
+START
+  ↓
+Node 1 — Discovery (Tavily + structured LLM → RegistryVerification)
+  ├→ active / unknown / not_found → Node 2 — Web crawler (Crawl4AI + LLM → WebsiteSignals)
+  │                                    ↓
+  │                                  Node 3 — Consensus (deterministic scoring, no LLM)
+  │                                    ├→ passed (score ≥ threshold) → Node 4 — Enrichment (Hunter.io)
+  │                                    │                                      ↓
+  │                                    │                                    END
+  │                                    └→ failed → END
+  └→ inactive / suspended / dissolved → END
+```
+
+- **Node 1** also runs a **fallback Tavily + LLM** pass when no `official_website_url` is present in registry results (`WebsiteDiscovery`).
+- **Node 2** uses investment_thesis in state to steer **dynamic** signal extraction (aligned with Node 3 scoring).
+- **Node 3** uses fuzzy name/address alignment and thesis-driven signal points (`POINTS_PER_DETECTED_SIGNAL`, `MAX_BASE_SIGNAL_SCORE` in `src/nodes/consensus.py`). The pass threshold is the `CONSENSUS_THRESHOLD` constant in that file (60 by default); `CONSENSUS_SCORE_THRESHOLD` in `Config` is available for future wiring.
 
 ## Prerequisites
 
-- Python 3.9+
-- Virtual environment (recommended)
-- API Keys: Google Gemini, Tavily, Hunter.io
+- **Python 3.10+** recommended (3.9 may work; match your environment).
+- **Playwright** (for Crawl4AI): after `pip install`, run `playwright install` if crawls fail for missing browsers.
+- API keys depend on provider and mocks (see below).
 
 ## Installation
 
-1. Clone the repository and navigate to the project:
 ```bash
-cd /Users/vedantdesai/Projects/Lead-Gen\ Agentic\ Pipeline
-```
+git clone <your-repo-url>
+cd "Lead-Gen Agentic Pipeline"
 
-2. Create and activate virtual environment:
-```bash
-python3 -m venv .env
-source .env/bin/activate  # On Windows: .env\Scripts\activate
-```
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
-3. Install dependencies:
-```bash
 pip install -r requirements.txt
+# If Crawl4AI fails to launch browsers:
+playwright install
 ```
 
-4. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your API keys:
-# GOOGLE_API_KEY=your-key-here
-# TAVILY_API_KEY=your-key-here
-# HUNTER_API_KEY=your-key-here
-```
+## Configuration
 
-## Quick Start
+The app loads environment variables from `**.env.local**` (`src/config.py` uses `load_dotenv('.env.local')`).
 
-### Run with Mock Data (No API Keys Required)
+1. Copy the example file and rename:
+  ```bash
+   cp .env.example .env.local
+  ```
+2. Edit `**.env.local**`. Important variables:
+
+
+| Variable                     | Purpose                                                        |
+| ---------------------------- | -------------------------------------------------------------- |
+| `LLM_PROVIDER`               | `grok` (default), `google`, or `ollama`.                       |
+| `GROK_API_KEY`               | Required for Grok unless `USE_MOCKS=true`.                     |
+| `GOOGLE_API_KEY`             | Required for Gemini when `LLM_PROVIDER=google`.                |
+| `OLLAMA_BASE_URL`            | Default `http://localhost:11434` when using Ollama.            |
+| `OLLAMA_MODEL`               | e.g. `llama3.1:8b` when using Ollama.                          |
+| `LLM_MODEL`                  | Gemini model id when using Google (e.g. `gemini-2.5-flash`).   |
+| `LLM_TEMPERATURE`            | Default `0` for reproducible extraction.                       |
+| `TAVILY_API_KEY`             | Search (discovery + registry).                                 |
+| `HUNTER_API_KEY`             | Domain email enrichment.                                       |
+| `USE_MOCKS`                  | `true` / `false` — bypass real APIs when `true`.               |
+| `MATCH_CONFIDENCE_THRESHOLD` | Name/address alignment tuning (used where wired in consensus). |
+
+
+Grok calls use the OpenAI-compatible xAI endpoint with the model label configured in `src/services/llm_service.py`.
+
+## Quick start
+
+**Smoke test (mocks, single business):**
 
 ```bash
 export USE_MOCKS=true
-python -m src.main
+python quickstart.py
 ```
 
-### Run with Real APIs
+`quickstart.py` validates imports, config, graph build, and runs `**run_sourcing_agent**` once with mocks.
+
+**Full batch pipeline (default `main`):**
 
 ```bash
-# Ensure .env is populated with real API keys
+# Real APIs: fill .env.local and set USE_MOCKS=false
 python -m src.main
 ```
 
-### Use as a Library
+This path:
+
+1. `**discover_businesses**` — Tavily multi-query fan-out (Ohio HVAC-style variants), dedupe, LLM extraction to a list of `{business_name, location}`.
+2. `**run_batch_pipeline**` — `asyncio.gather` of `**run_sourcing_agent**` per discovered business (same graph as single-lead).
+3. `**export_qualified_leads**` — Appends rows to `**qualified_leads.csv**` for leads with `passed_consensus=True`. Ensures a **header row** exists (migrates legacy headerless files once).
+
+### CSV export columns
+
+
+| Column        | Description                                            |
+| ------------- | ------------------------------------------------------ |
+| Business Name | Lead name                                              |
+| Website       | Registry `official_website_url` if present, else `N/A` |
+| Lead Score    | Final consensus score (0–100)                          |
+| Contact Name  | Primary Hunter contact first + last, or `N/A`          |
+| Contact Email | Primary contact email, or `N/A`                        |
+| Job Title     | Primary contact title, or `N/A`                        |
+
+
+## Programmatic usage
+
+**Single lead:**
 
 ```python
 import asyncio
@@ -82,237 +134,72 @@ async def main():
         query="Find HVAC distributors in Ohio without e-commerce",
         business_name="Example Company Corp",
         location="Cleveland, Ohio",
+        website_url=None,
+        investment_thesis="Optional buyer thesis for Node 2 signal design.",
     )
-    print(f"Lead Score: {result.lead_score}/100")
-    print(f"Recommendation: {result.recommendation}")
+    print(result.lead_score, result.recommendation)
 
 asyncio.run(main())
 ```
 
-## Architecture Overview
+**Batch (custom driver):**
 
-### Graph Flow
-
-```
-START
-  ↓
-NODE 1: Discovery (Registry Check via Tavily)
-  ├→ Active → NODE 2: Web Crawler (Crawl4AI + LLM Signal Extraction)
-  │              ↓
-  │            NODE 3: Consensus (Deterministic Python - NO LLM)
-  │              ├→ Score ≥ 70 → NODE 4: Enrichment (Hunter.io)
-  │              │                ↓
-  │              │              END (Return Lead)
-  │              │
-  │              └→ Score < 70 → END (Reject Lead)
-  │
-  └→ Inactive → END (Skip Pipeline)
-```
-
-### Node Descriptions
-
-#### Node 1: Discovery & State Registry Check
-- **Purpose**: Verify business legitimacy and active status
-- **Service**: Tavily API (web search)
-- **Process**:
-  1. Search for official state licensing registries
-  2. Use Gemini to extract structured RegistryVerification
-  3. Validate: Business must be "active"
-- **Routing**:
-  - Active → Continue to Node 2
-  - Inactive/Not Found → END (save tokens, skip waste)
-- **Pydantic Output**: `RegistryVerification`
-
-#### Node 2: Dynamic Website Crawler & Signal Extraction
-- **Purpose**: Extract hidden business signals from website
-- **Service**: Crawl4AI (local Playwright) + Gemini LLM
-- **Process**:
-  1. Crawl business website (Crawl4AI converts DOM to Markdown)
-  2. Use Gemini to extract signals from Markdown with strict Pydantic validation
-  3. Extract:
-     - E-commerce presence (Shopify, WooCommerce, custom, none)
-     - Legacy software mentions (Flash, old ASP.NET, outdated tech)
-     - Succession planning signals (family members, ownership transitions)
-     - Owner retirement mentions (age, retirement timeline)
-     - Contact information and team size
-- **Pydantic Output**: `WebsiteSignals` (with per-signal confidence scores and evidence)
-
-#### Node 3: Triangulated Consensus & Deterministic Scoring
-- **Purpose**: Validate registry vs. website data; calculate final lead score
-- **Type**: **PURE DETERMINISTIC PYTHON - NO LLM CALLS**
-- **Process**:
-  1. Fuzzy-match business names (registry vs. website)
-  2. Fuzzy-match addresses (registry vs. website)
-  3. Detect conflicts:
-     - Name match < 0.70 → Reject
-     - Address match < 0.65 → Reject (or warn)
-  4. Calculate `final_lead_score` (0-100):
-     - Base: Signal scoring
-       - No e-commerce: +25 pts
-       - Legacy software: +20 pts
-       - Succession planning: +20 pts
-       - Owner retirement signals: +25 pts
-     - Bonus: Match quality (0-20 pts)
-       - Excellent match (name ≥0.95, address ≥0.90): +20 pts
-       - Good match (name ≥0.85, address ≥0.75): +10 pts
-  5. Routing:
-     - Score ≥ 70 AND no conflicts → Proceed to Node 4
-     - Score < 70 OR conflicts → END (reject lead)
-- **Pydantic Output**: `ConsensusResult` (with detailed scoring breakdown)
-
-#### Node 4: Enrichment
-- **Purpose**: Find contact information for owner/decision makers
-- **Service**: Hunter.io API
-- **Process**:
-  1. Search Hunter.io for domain contacts
-  2. Identify primary contact (CEO/Owner priority)
-  3. Return list of enriched contacts with emails, job titles, LinkedIn
-- **Pydantic Output**: `List[HunterContact]`
-
-### State Management
-
-The `LeadState` TypedDict is passed through all nodes. Key features:
-
-- **Annotated List Reducers**: `execution_log` and `errors_encountered` use `operator.add` reducer to **append** (not overwrite) entries
-- **Comprehensive Tracking**: 30+ fields for input parameters, intermediate outputs, metadata, and execution logs
-- **Type Safety**: All fields typed for IDE autocomplete and validation
-
-### Pydantic Schemas
-
-All LLM outputs are validated against strict Pydantic models:
-
-- `RegistryVerification`: Registry data from Node 1
-- `SignalCategory`: Individual signal with confidence and evidence
-- `WebsiteSignals`: Website signals from Node 2
-- `ConsensusResult`: Scoring breakdown from Node 3
-- `HunterContact`: Contact information from Node 4
-- `FinalLeadOutput`: Complete lead object returned to user
-
-Each schema enforces:
-- Type hints and Optional fields
-- Confidence scores (0.0-1.0) for probabilistic data
-- Evidence strings for audit trails
-- Validators for normalization (e.g., lowercase status fields)
-
-## Configuration
-
-All configuration via environment variables in `.env`:
-
-```env
-# LLM Configuration
-GOOGLE_API_KEY=your-key
-LLM_MODEL=gemini-2.5-flash
-LLM_TEMPERATURE=0
-
-# API Keys
-TAVILY_API_KEY=your-key
-HUNTER_API_KEY=your-key
-
-# Thresholds
-CONSENSUS_SCORE_THRESHOLD=70
-MATCH_CONFIDENCE_THRESHOLD=0.85
-
-# Feature Flags
-USE_MOCKS=false
-```
-
-## Extending the Pipeline
-
-### Add Custom Signals in Node 2
-
-Edit `src/models/schemas.py` → `WebsiteSignals`:
 ```python
-class WebsiteSignals(BaseModel):
-    # ... existing signals ...
-    
-    my_custom_signal: SignalCategory = Field(
-        ..., description="My custom signal description"
+import asyncio
+from src.main import run_batch_pipeline, export_qualified_leads
+
+async def main():
+    results = await run_batch_pipeline(
+        search_query="your Tavily seed query",
+        extraction_instructions="Instructions for how many/what businesses to extract",
+        investment_thesis="Thesis passed to each lead's Node 2",
+        num_results_per_query=20,
     )
+    export_qualified_leads(results, "qualified_leads.csv")
+
+asyncio.run(main())
 ```
 
-Then update the Node 2 LLM prompt in `src/nodes/web_crawler.py` to extract the new signal.
+## Project layout
 
-### Adjust Node 3 Scoring
-
-Edit `src/nodes/consensus.py` → `SIGNAL_SCORES`:
-```python
-SIGNAL_SCORES = {
-    "no_ecommerce": 25,
-    "legacy_software": 20,
-    "my_custom_signal": 15,  # Add new signal
-}
+```text
+src/
+  main.py           # run_sourcing_agent, discover_businesses, run_batch_pipeline, CSV export, __main__ batch
+  graph.py          # LangGraph: nodes + conditional edges
+  config.py         # Env + Config.validate()
+  models/           # Pydantic schemas + LeadState
+  nodes/            # discovery, web_crawler, consensus, enrichment
+  services/         # tavily, crawl4ai, hunter, llm (+ mocks)
+tests/              # Placeholder for pytest suite
+quickstart.py       # Mock single-lead verification
+qualified_leads.csv # Generated/updated by export (committed optional)
+verify-async.sh     # Dev checks for async/graph patterns (paths may need editing if you relocate the repo)
 ```
 
-### Use Different LLM
+## Dependencies (high level)
 
-Edit `src/services/llm_service.py` to swap Gemini for Claude, GPT-4o, or other:
-```python
-# Change from ChatGoogleGenerativeAI to ChatAnthropic, ChatOpenAI, etc.
-```
+Defined in `**requirements.txt**`: LangGraph, Pydantic v2, LangChain integrations (Google GenAI, Ollama, OpenAI-compatible for Grok), Crawl4AI, Tavily, httpx, Playwright, pytest stack, etc.
 
 ## Testing
 
-Run unit tests:
-```bash
-pytest tests/ -v
-```
-
-Run with mock data (no API calls):
 ```bash
 export USE_MOCKS=true
-python -m src.main
+pytest tests/ -v   # passes if no tests collected; add tests under tests/
 ```
 
-## Production Deployment
+## Extending
 
-1. **Environment Secrets**: Use secure secret management (e.g., AWS Secrets Manager)
-2. **Async Runtime**: Deploy with async-capable ASGI server (e.g., Uvicorn, Gunicorn with uvicorn worker)
-3. **Rate Limiting**: Add request throttling for API calls
-4. **Caching**: Cache Tavily/Hunter results to reduce API costs
-5. **Monitoring**: Log all pipeline executions for audit and debugging
-6. **Error Handling**: Implement retry logic with exponential backoff for external APIs
-
-## Architecture Principles
-
-1. **No Hardcoded HTML Parsing**: All website data flows through Crawl4AI → Markdown → LLM
-2. **Deterministic Consensus**: Node 3 is pure Python (no probabilistic LLM) for reproducibility
-3. **Triangulated Validation**: Registry + Website data must align to avoid hallucinations
-4. **Fail-Fast Routing**: Early termination if registry check fails (saves tokens/compute)
-5. **Full Type Safety**: Pydantic models enforce schema contracts
-6. **Async Throughout**: Every node and service is async-ready for high throughput
-7. **Mock Support**: All external APIs have mock implementations for local development
+- **Thesis-driven signals:** Pass `investment_thesis` into `run_sourcing_agent` / `run_batch_pipeline`; adjust prompts in `src/nodes/web_crawler.py` and scoring caps in `src/nodes/consensus.py`.
+- **Discovery fan-out:** Keyword/city variants and planning live in `**discover_businesses`** in `src/main.py`.
+- **New LLM provider:** Extend `src/services/llm_service.py` and `src/config.py` / `.env.example`.
 
 ## Troubleshooting
 
-### No results from Tavily
-- Ensure `TAVILY_API_KEY` is valid
-- Check network connectivity
-- Verify search query is specific enough
+- **Config not loading:** Ensure variables are in `**.env.local`**, not only `.env`.
+- **Grok / Google / Ollama errors:** Match `LLM_PROVIDER` to keys you set; use `USE_MOCKS=true` to isolate graph logic.
+- **Crawl failures:** Install browsers with `playwright install`; check firewall and target site blocking.
+- **Empty CSV:** No rows appended if no lead in the batch has `passed_consensus`; check logs for consensus reject reasons.
 
-### LLM extraction returning None
-- Check Gemini API key validity
-- Ensure `LLM_TEMPERATURE=0` for deterministic output
-- Review LLM response format (ensure valid JSON)
+## License / contact
 
-### Low lead scores
-- Adjust `SIGNAL_SCORES` in `src/nodes/consensus.py`
-- Lower `CONSENSUS_SCORE_THRESHOLD` in `.env`
-- Review scoring logic: ensure signals align with your criteria
-
-### Address/name matching failing
-- Lower `MATCH_CONFIDENCE_THRESHOLD` in `.env`
-- Update fuzzy matching logic in `consensus_node()`
-- Manually review edge cases
-
-## License
-
-Proprietary - YC Startup
-
-## Contact
-
-Vedant Desai - vedant@company.com
-"""
-
-import logging
-
-logger = logging.getLogger(__name__)
+Proprietary — update license and contact lines as appropriate for your organization.
