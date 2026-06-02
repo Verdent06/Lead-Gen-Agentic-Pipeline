@@ -5,7 +5,7 @@ import time
 from src.models.state import LeadState
 from src.models.schemas import WebsiteSignals
 from src.services.crawl4ai_service import get_crawl4ai_service
-from src.services.llm_service import get_llm_service
+from src.services.llm_service import EMBEDDING_MODEL, get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ async def web_crawler_node(state: LeadState) -> dict:
     execution_log = state.get("execution_log", [])
     website_markdown = None
     extracted_signals = None
+    embedding = None
     website_crawl_success = False
 
     try:
@@ -61,8 +62,23 @@ async def web_crawler_node(state: LeadState) -> dict:
         execution_log.append(f"Website successfully converted to Markdown ({len(website_markdown)} chars)")
         logger.info(f"[{business_name}] Website Markdown extracted ({len(website_markdown)} characters)")
 
-        # Extract signals using LLM with strict Pydantic validation
         llm_service = await get_llm_service()
+
+        embedding = await llm_service.generate_embedding(
+            website_markdown, business_name=business_name
+        )
+        if embedding:
+            execution_log.append(
+                f"Generated {len(embedding)}-dim embedding via {EMBEDDING_MODEL}"
+            )
+            logger.info(
+                f"[{business_name}] Embedding generated ({len(embedding)} dimensions)"
+            )
+        else:
+            execution_log.append("Embedding generation failed or skipped")
+            logger.warning(f"[{business_name}] Embedding generation returned None")
+
+        # Extract signals using LLM with strict Pydantic validation
 
         investment_thesis = (state.get("investment_thesis") or "").strip()
         if not investment_thesis:
@@ -146,6 +162,7 @@ INDUSTRY DETERMINATION:
 
     return {
         "website_markdown": website_markdown,
+        "embedding": embedding,
         "extracted_signals": extracted_signals,
         "website_crawl_success": website_crawl_success,
         "website_crawl_error": None if website_crawl_success else "Crawl or extraction failed",

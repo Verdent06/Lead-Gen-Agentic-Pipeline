@@ -1,6 +1,8 @@
 """LLM service with support for multiple providers (Grok, Ollama, Gemini)."""
 
+import asyncio
 import json
+import os
 from typing import Type, TypeVar, Optional
 import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -11,7 +13,24 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 
+EMBEDDING_MODEL = "gemini-embedding-2"
+EMBEDDING_DIM = 3072
+
 T = TypeVar("T", bound=BaseModel)
+
+
+def _create_genai_client():
+    """Lazy import so missing google-genai fails with an actionable message."""
+    try:
+        from google import genai
+    except ImportError as exc:
+        raise ImportError(
+            "Embedding support requires the google-genai package. "
+            "Install it with: pip install google-genai"
+        ) from exc
+
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    return genai.Client(api_key=api_key) if api_key else genai.Client()
 
 
 class LLMService:
@@ -49,6 +68,15 @@ class LLMService:
         if Config.LLM_PROVIDER == "ollama":
             extra = f" at {Config.OLLAMA_BASE_URL}"
         logger.info(f"Initializing {Config.LLM_PROVIDER} LLM{extra} (model: {model_label})")
+
+        # Lazy: created on first generate_embedding() (requires google-genai + API key)
+        self._genai_client = None
+        self._embedding_semaphore = asyncio.Semaphore(3)
+
+    def _get_genai_client(self):
+        if self._genai_client is None:
+            self._genai_client = _create_genai_client()
+        return self._genai_client
 
     async def extract_structured(
         self,
@@ -106,6 +134,93 @@ Content to extract from:
 
         except Exception as e:
             logger.error(f"Failed to extract {response_model.__name__}: {e}", exc_info=True)
+            return None
+
+    def _embed_content_sync(self, formatted_text: str):
+        """Blocking Gemini embed_content call (run in a thread pool)."""
+        return self._get_genai_client().models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=formatted_text,
+        )
+
+    @staticmethod
+    def _embedding_values_from_response(result) -> Optional[list[float]]:
+        """Extract the first embedding vector from a Gemini embed_content response."""
+        embeddings = getattr(result, "embeddings", None)
+        if not embeddings:
+            return None
+        first = embeddings[0] if isinstance(embeddings, (list, tuple)) else embeddings
+        values = getattr(first, "values", None)
+        if values is None and isinstance(first, (list, tuple)):
+            values = first
+        if values is None:
+            return None
+        return [float(v) for v in values]
+
+    async def generate_embedding(
+        self, text: str, business_name: str = "none"
+    ) -> Optional[list[float]]:
+        """
+        Generate a 3072-dimensional embedding for asymmetric document retrieval.
+
+        Formats input as ``title: {business_name} | text: {text}`` per Gemini 2 guidance.
+        """
+        if Config.USE_MOCKS:
+            logger.debug("Using mock embedding (%s dimensions)", EMBEDDING_DIM)
+            return [0.0] * EMBEDDING_DIM
+
+        if not text or not str(text).strip():
+            logger.warning("generate_embedding called with empty text for %s", business_name)
+            return None
+
+        text = str(text)
+        if len(text) > 4000:
+            text = (
+                text[:3000]
+                + "\n\n...[CATALOG NOISE OMITTED]...\n\n"
+                + text[-1000:]
+            )
+        formatted_text = f"title: {business_name} | text: {text}"
+
+        try:
+            async with self._embedding_semaphore:
+                client = self._get_genai_client()
+                aio_models = getattr(client, "aio", None)
+                if aio_models is not None:
+                    result = await aio_models.models.embed_content(
+                        model=EMBEDDING_MODEL,
+                        contents=formatted_text,
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        self._embed_content_sync, formatted_text
+                    )
+                await asyncio.sleep(2.0)
+
+            values = self._embedding_values_from_response(result)
+            if not values:
+                logger.warning(
+                    "Embedding API returned no values for %s", business_name
+                )
+                return None
+
+            if len(values) != EMBEDDING_DIM:
+                logger.warning(
+                    "Expected %s-dim embedding for %s, got %s",
+                    EMBEDDING_DIM,
+                    business_name,
+                    len(values),
+                )
+
+            logger.info(
+                "Generated embedding for %s (%s dimensions)",
+                business_name,
+                len(values),
+            )
+            return values
+
+        except Exception as e:
+            logger.warning(f"Embedding failed for {business_name}: {str(e)}")
             return None
 
     def _mock_response(self, response_model: Type[T]) -> T:

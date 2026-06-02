@@ -1,10 +1,8 @@
 """Main entry point for the autonomous sourcing agent pipeline."""
 
 import asyncio
-import csv
 import logging
 import math
-import os
 import re
 import time
 from urllib.parse import urlparse
@@ -12,7 +10,7 @@ from typing import Any, Optional
 from src.models.state import LeadState
 from src.models.schemas import FinalLeadOutput
 from src.graph import build_graph
-from src.config import Config
+from src.services.db_service import DatabaseService
 from pydantic import BaseModel, Field
 from typing import List
 
@@ -102,6 +100,13 @@ async def run_sourcing_agent(
         consensus_passed = final_state.get("consensus_passed", False)
         execution_log = final_state.get("execution_log", [])
         errors = final_state.get("errors_encountered", [])
+        website_markdown = final_state.get("website_markdown")
+        embedding = final_state.get("embedding")
+        resolved_website_url = (
+            final_state.get("website_url")
+            or (registry_data.official_website_url if registry_data else None)
+            or (extracted_signals.website_url if extracted_signals else None)
+        )
 
         # Determine recommendation
         if consensus_passed and lead_score >= 80:
@@ -129,6 +134,9 @@ async def run_sourcing_agent(
             execution_log=execution_log,
             errors_encountered=errors,
             recommendation=recommendation,
+            website_url=resolved_website_url,
+            raw_content=website_markdown,
+            embedding=embedding,
         )
 
         logger.info("=" * 70)
@@ -417,78 +425,88 @@ async def run_batch_pipeline(
     return successful_results
 
 
-_QUALIFIED_LEADS_HEADERS = [
-    "Business Name",
-    "Website",
-    "Lead Score",
-    "Contact Name",
-    "Contact Email",
-    "Job Title",
-]
+def _resolve_entity_url(lead: FinalLeadOutput) -> Optional[str]:
+    """Best-effort URL from pipeline output for target_entities.url."""
+    if lead.website_url and str(lead.website_url).strip():
+        return str(lead.website_url).strip()
+    if lead.website_signals and lead.website_signals.website_url:
+        return str(lead.website_signals.website_url).strip()
+    if (
+        lead.registry_verification
+        and lead.registry_verification.official_website_url
+    ):
+        return str(lead.registry_verification.official_website_url).strip()
+    return None
 
 
-def _qualified_leads_csv_has_header(path: str) -> bool:
-    """True if the file exists, is non-empty, and its first row matches our header."""
-    if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        return False
-    try:
-        with open(path, newline="", encoding="utf-8") as f:
-            row = next(csv.reader(f), None)
-        return row == _QUALIFIED_LEADS_HEADERS
-    except (OSError, StopIteration):
+async def _persist_target_entity(db: DatabaseService, lead: FinalLeadOutput) -> bool:
+    """Upsert one consensus-qualified lead into PostgreSQL. Returns True on success."""
+    if not lead.passed_consensus:
         return False
 
+    url = _resolve_entity_url(lead)
+    if not url:
+        logger.warning(
+            "Skipping DB persist for %s: no website URL in pipeline output",
+            lead.business_name,
+        )
+        return False
 
-def _qualified_leads_csv_prepend_header_if_missing(path: str) -> None:
-    """If the CSV has data but no header row, rewrite once with the standard header."""
-    if _qualified_leads_csv_has_header(path):
-        return
-    if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        return
-    with open(path, newline="", encoding="utf-8") as f:
-        existing = list(csv.reader(f))
-    if not existing:
-        return
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(_QUALIFIED_LEADS_HEADERS)
-        w.writerows(existing)
+    company_name = (lead.business_name or "").strip() or "Unknown"
+    raw_content = (lead.raw_content or "").strip()
+    if not raw_content:
+        logger.warning(
+            "Persisting %s with empty raw_content (website markdown unavailable)",
+            company_name,
+        )
+
+    embedding = lead.embedding
+    if not embedding:
+        logger.warning(
+            "Skipping DB persist for %s (%s): embedding not present in state",
+            company_name,
+            url,
+        )
+        return False
+
+    await db.insert_target_entity(
+        url=url,
+        company_name=company_name,
+        raw_content=raw_content,
+        embedding=embedding,
+    )
+    return True
 
 
-def export_qualified_leads(results: list, filename: str = "qualified_leads.csv"):
-    """Export qualified leads that passed consensus to a CSV file."""
-    # Filter for leads that passed consensus
+async def persist_qualified_target_entities(
+    db: DatabaseService, results: list[FinalLeadOutput]
+) -> int:
+    """Concurrently upsert all consensus-qualified leads into target_entities."""
     qualified = [r for r in results if r.passed_consensus]
     if not qualified:
-        print("\n[EXPORT] No leads passed consensus in this batch. CSV not updated.")
-        return
+        logger.info("No consensus-qualified leads to persist to PostgreSQL")
+        return 0
 
-    _qualified_leads_csv_prepend_header_if_missing(filename)
+    insert_jobs = [_persist_target_entity(db, lead) for lead in qualified]
+    outcomes = await asyncio.gather(*insert_jobs, return_exceptions=True)
 
-    new_rows = []
-    for lead in qualified:
-        c_name = (
-            f"{lead.primary_contact.first_name or ''} {lead.primary_contact.last_name or ''}".strip()
-            if lead.primary_contact
-            else "N/A"
-        )
-        c_email = lead.primary_contact.email if lead.primary_contact else "N/A"
-        c_title = lead.primary_contact.job_title if lead.primary_contact else "N/A"
-        website = (
-            lead.registry_verification.official_website_url
-            if (lead.registry_verification and lead.registry_verification.official_website_url)
-            else "N/A"
-        )
-        new_rows.append([lead.business_name, website, lead.lead_score, c_name, c_email, c_title])
+    persisted = 0
+    for lead, outcome in zip(qualified, outcomes):
+        if isinstance(outcome, Exception):
+            logger.error(
+                "DB persist failed for %s: %s",
+                lead.business_name,
+                outcome,
+            )
+        elif outcome:
+            persisted += 1
 
-    file_empty = not os.path.isfile(filename) or os.path.getsize(filename) == 0
-    with open(filename, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if file_empty:
-            writer.writerow(_QUALIFIED_LEADS_HEADERS)
-        writer.writerows(new_rows)
-
-    print(f"\n[EXPORT] ✅ Successfully appended {len(qualified)} highly qualified leads to {filename}")
+    logger.info(
+        "Persisted %s/%s consensus-qualified leads to target_entities",
+        persisted,
+        len(qualified),
+    )
+    return persisted
 
 
 async def main():
@@ -504,6 +522,9 @@ async def main():
         "other branches or competitors and are investing in a modern contractor-facing e-commerce "
         "or ordering experience, with optional buyout of ownership transition."
     )
+
+    db = DatabaseService()
+    await db.init_pool()
 
     results = await run_batch_pipeline(
         search_query,
@@ -524,9 +545,10 @@ async def main():
         print(f"Passed Consensus: {result.passed_consensus}")
         print(f"Recommendation: {result.recommendation}")
         print("-" * 40)
-    
-    export_qualified_leads(results)
-        
+
+    persisted = await persist_qualified_target_entities(db, results)
+    print(f"\n[PERSIST] Upserted {persisted} qualified target entities to PostgreSQL")
+
     return results
 
 

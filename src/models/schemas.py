@@ -345,3 +345,18 @@ class FinalLeadOutput(BaseModel):
         default=None,
         description="Final recommendation (e.g., 'High-priority prospect', 'Manual review needed', etc.)",
     )
+
+    website_url: Optional[str] = Field(
+        default=None,
+        description="Resolved official website URL for persistence",
+    )
+
+    raw_content: Optional[str] = Field(
+        default=None,
+        description="Crawled website markdown used as raw_content for vector storage",
+    )
+
+    embedding: Optional[List[float]] = Field(
+        default=None,
+        description="3072-dimensional embedding of raw_content when available in pipeline state",
+    )

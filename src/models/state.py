@@ -60,6 +60,9 @@ class LeadState(TypedDict, total=False):
     extracted_signals: Optional[WebsiteSignals]
     """Structured LLM extraction of hidden signals from website Markdown (Node 2 output)"""
 
+    embedding: Optional[List[float]]
+    """3072-dimensional vector embedding of website_markdown when computed upstream"""
+
     # === Node 3: Triangulated Consensus & Scoring ===
     consensus_result: Optional[ConsensusResult]
     """Deterministic comparison of registry vs. website data (Node 3 output)"""
