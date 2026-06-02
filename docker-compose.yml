@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: ma_postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: vedant
+      POSTGRES_PASSWORD: rootpassword
+      POSTGRES_DB: deal_sourcing_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  postgres_data:

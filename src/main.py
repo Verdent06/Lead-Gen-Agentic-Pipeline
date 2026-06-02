@@ -501,8 +501,8 @@ async def main():
     num_results_per_query = 20
     investment_thesis = (
         "We are looking for high-growth B2B HVAC distributors that may have recently acquired "
-        "other branches or competitors and are insignsvesting in a modern contractor-facing e-commerce "
-        "or ordering experience, with optional  of ownership transition."
+        "other branches or competitors and are investing in a modern contractor-facing e-commerce "
+        "or ordering experience, with optional buyout of ownership transition."
     )
 
     results = await run_batch_pipeline(
