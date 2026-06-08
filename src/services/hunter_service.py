@@ -44,7 +44,8 @@ class HunterService:
                 # First, search for domain info
                 params = {
                     "domain": domain,
-                    "limit": 10,
+                    "limit": 100,
+                    "department": "hr",
                 }
 
                 response = await client.get(
