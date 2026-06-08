@@ -2,3 +2,5 @@
 .env.local
 *.csv
 inspect_payload.py
+__pycache__/
+*.pyc

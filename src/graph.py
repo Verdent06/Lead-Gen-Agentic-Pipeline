@@ -11,22 +11,10 @@ from src.nodes.enrichment import enrichment_node
 logger = logging.getLogger(__name__)
 
 
-def should_continue_after_discovery(state: LeadState) -> str:
-    """
-    Conditional edge after Node 1 (Discovery).
-
-    Routes to Node 2 if registry status is 'active', 'unknown', or 'not_found'.
-    Routes to END only if status is 'inactive', 'suspended', or 'dissolved'.
-    """
-    status = state.get("registry_verification_status", "")
-    should_continue = state.get("should_continue", False)
-
-    if should_continue:
-        logger.info(f"Discovery → Node 2 (Web Crawler) [status: {status}]")
-        return "web_crawler"
-    else:
-        logger.info(f"Discovery → END (status: {status})")
-        return "end"
+def route_after_discovery(state: LeadState) -> str:
+    if state.get("direct_to_enrichment", False):
+        return "enrichment"
+    return "web_crawler"
 
 
 def should_continue_after_consensus(state: LeadState) -> str:
@@ -82,10 +70,10 @@ def build_graph() -> StateGraph:
     # Add conditional edges
     workflow.add_conditional_edges(
         "discovery",
-        should_continue_after_discovery,
+        route_after_discovery,
         {
+            "enrichment": "enrichment",
             "web_crawler": "web_crawler",
-            "end": END,
         },
     )
 

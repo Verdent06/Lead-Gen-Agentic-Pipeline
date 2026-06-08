@@ -63,6 +63,7 @@ async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str
             ),
             "investment_thesis": thesis,
             "target_decision_makers": personas,
+            "direct_to_enrichment": True,
             "execution_log": ["Orchestrator campaign started"],
             "node_timestamps": {},
             "errors_encountered": [],
@@ -74,7 +75,7 @@ async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str
 
         try:
             result = await graph.ainvoke(initial_state)
-            print(f"[+] Successfully processed: {company.get('business_name')} - Found {len(result.get('enriched_contacts', []))} contacts")
+            print(f"[+] Successfully processed: {company.get('business_name')} - Found {len(result.get('enrichment_data', []))} contacts")
             return result
         except Exception as e:
             print(f"[!] Graph execution failed for {company.get('business_name')}: {str(e)}")

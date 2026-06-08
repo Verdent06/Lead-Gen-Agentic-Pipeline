@@ -40,6 +40,9 @@ class LeadState(TypedDict, total=False):
     industry_definition: Optional[str]
     """Dynamic definition of the target industry to replace hardcoded checks"""
 
+    direct_to_enrichment: bool
+    """If True, bypass Node 2 (Web Crawler) and Node 3 (Consensus) and route from Node 1 directly to Node 4 (Enrichment)."""
+
     # === Node 1: Discovery & State Registry Check ===
     registry_search_query: Optional[str]
     """Refined Tavily search query constructed from query + location"""
