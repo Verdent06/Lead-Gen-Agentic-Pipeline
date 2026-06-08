@@ -78,60 +78,37 @@ async def web_crawler_node(state: LeadState) -> dict:
             execution_log.append("Embedding generation failed or skipped")
             logger.warning(f"[{business_name}] Embedding generation returned None")
 
-        # Extract signals using LLM with strict Pydantic validation
-
-        investment_thesis = (state.get("investment_thesis") or "").strip()
-        if not investment_thesis:
-            investment_thesis = (
-                "Independent HVAC distributors and wholesalers where operational maturity, "
-                "ownership transition, or lack of modern digital sales may indicate strategic fit."
-            )
+        # Extract dynamic state variables or fallback to defaults
+        investment_thesis = (state.get("investment_thesis") or "Find strategic operational signals.").strip()
+        industry_definition = (state.get("industry_definition") or "Any valid B2B business.").strip()
 
         extraction_prompt = f"""
-Analyze the following website content for hidden business signals AND VERIFY THE INDUSTRY.
+Analyze the following website content for hidden business signals AND VERIFY THE TARGET INDUSTRY/TECH STACK.
 
-=== INVESTMENT THESIS (PRIMARY LENS FOR SIGNALS) ===
+=== INVESTMENT / QUALIFICATION THESIS ===
 {investment_thesis}
 
-Based on this Investment Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals
-to look for on this website (e.g. recent acquisitions, modern B2B e-commerce, expansion capex,
-succession language, integration of a target platform). For EACH signal, output exactly one object
-in the JSON field `signals` with: signal_name (short snake_case or clear label), detected (bool),
-confidence (0.0–1.0), and evidence (direct support from the markdown below). Use conservative
-confidence; only set detected=true when the page clearly supports it.
+=== INDUSTRY / TECH STACK DEFINITION ===
+{industry_definition}
 
-CRITICAL NAME EXTRACTION: You MUST extract the ACTUAL business name as it appears in the website markdown (headers, title, about text, footer). DO NOT use placeholder names, and DO NOT hallucinate. If the website says "Duncan Supply", output "Duncan Supply". If it says "Behler-Young Co.", output that exact string. The business_name_from_site field must match what is written on this page, not any name from elsewhere in the pipeline.
+Based on this Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals to look for on this website. 
+For EACH signal, output exactly one object in the JSON field `signals` with: signal_name, detected (bool), confidence (0.0–1.0), and evidence. 
 
-CRITICAL: Industry Verification - HVAC SUPPLY EQUALS HVAC DISTRIBUTOR
-- This search is specifically for HVAC distribution businesses (HVAC wholesale/distribution companies).
-- In this industry, "HVAC Supply", "HVAC Supplier", "HVAC Parts Supplier", "HVAC Wholesaler", and "HVAC Distributor" are SYNONYMOUS TERMS.
-- Determine if this website belongs to the HVAC distribution industry by looking for any of these indicators:
-  * Business name/description includes: "HVAC", "heating", "cooling", "air conditioning", "AC"
-  * AND they mention: "supply", "supplier", "distributor", "wholesale", "parts", "equipment"
-- REJECT ONLY if the business is: labor union, government agency, residential HVAC contractor, manufacturer, or completely non-HVAC.
-- ACCEPT if the website indicates they are an HVAC supply/wholesale company serving contractors and businesses (they ARE a distributor).
-- Look for keywords like: "HVAC supplies", "heating cooling", "air conditioning supplier", "HVAC wholesale", "duct", "compressor", "refrigerant", "furnace", "HVAC equipment", "ductless", "heat pump", "contractor supply", "wholesale distributor", etc.
-- SEMANTIC SYNONYMS: In this industry, 'HVAC Supply', 'HVAC Parts Supplier', and 'HVAC Wholesaler' mean the EXACT SAME THING as an HVAC Distributor. If the website indicates they are a supply company selling HVAC equipment, ACCEPT them.
+CRITICAL NAME EXTRACTION: Extract the ACTUAL business name as it appears in the website markdown. DO NOT use placeholder names, and DO NOT hallucinate. 
+
+INDUSTRY / QUALIFICATION DETERMINATION:
+- is_target_industry: Set to true ONLY if the website clearly matches the INDUSTRY / TECH STACK DEFINITION provided above.
+- industry_evidence: Quote or describe specific phrases from the website that justify your determination.
 
 Also extract where applicable:
 - Business size indicators, team size hints, contact information, owner details
-- Domain Redirect: If this page clearly states the website has moved to a new domain, extract the new URL in new_domain_redirect
+- Domain Redirect: If this page clearly states the website has moved, extract the new URL in new_domain_redirect
 
 Website Content (Markdown):
 ---
 {website_markdown}
 ---
-
-The `signals` array MUST contain between 3 and 5 entries (inclusive), each corresponding to one thesis criterion you are evaluating.
-
-INDUSTRY DETERMINATION:
-- is_target_industry: Set to true if the website clearly operates in HVAC supply/distribution. Set to false ONLY if they are NOT in HVAC at all.
-- industry_evidence: Quote or describe specific phrases from the website that justify your determination. Examples:
-  * If HVAC: "Website is a family-owned HVAC supply company providing equipment to contractors and businesses"
-  * If HVAC: "Founded in 2010 as an HVAC parts supplier and distributor for Ohio and surrounding regions"
-  * If NOT HVAC: "Website is for a labor union, not an HVAC business"
 """
-
         extracted_signals = await llm_service.extract_structured(
             prompt=extraction_prompt,
             response_model=WebsiteSignals,

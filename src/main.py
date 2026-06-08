@@ -439,16 +439,36 @@ def _resolve_entity_url(lead: FinalLeadOutput) -> Optional[str]:
     return None
 
 
+def normalize_url(url: str) -> str:
+    """Canonical URL key for DB upserts (protocol/www/trailing slash insensitive)."""
+    if url is None or not str(url).strip():
+        return ""
+    cleaned = str(url).strip().lower()
+    cleaned = re.sub(r"^https?://", "", cleaned)
+    cleaned = re.sub(r"^www\.", "", cleaned)
+    cleaned = cleaned.rstrip("/")
+    return cleaned
+
+
 async def _persist_target_entity(db: DatabaseService, lead: FinalLeadOutput) -> bool:
     """Upsert one consensus-qualified lead into PostgreSQL. Returns True on success."""
     if not lead.passed_consensus:
         return False
 
-    url = _resolve_entity_url(lead)
-    if not url:
+    resolved_url = _resolve_entity_url(lead)
+    if not resolved_url:
         logger.warning(
             "Skipping DB persist for %s: no website URL in pipeline output",
             lead.business_name,
+        )
+        return False
+
+    url = normalize_url(resolved_url)
+    if not url:
+        logger.warning(
+            "Skipping DB persist for %s: URL empty after normalization (%r)",
+            lead.business_name,
+            resolved_url,
         )
         return False
 

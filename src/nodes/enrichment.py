@@ -25,7 +25,11 @@ async def enrichment_node(state: LeadState) -> dict:
         Updated state dict with enriched contacts
     """
     start_time = time.time()
-    
+
+    target_personas = state.get("target_decision_makers", [
+            "owner", "ceo", "founder", "president", "principal", "managing partner"
+        ])
+
     # Extract business name for logging
     business_name_state = state.get("business_name", "Unknown")
     logger.info(f"\n----------------------------------------\n[{business_name_state}] === Node 4: Enrichment ===")
@@ -146,7 +150,7 @@ async def enrichment_node(state: LeadState) -> dict:
                         department=contact.get("department"),
                         linkedin_profile=contact.get("linkedin_profile"),
                         is_owner_or_decision_maker=_is_decision_maker(
-                            contact.get("job_title", ""), owner_name
+                            contact.get("job_title", ""), target_personas
                         ),
                         source="hunter.io",
                     )
@@ -185,20 +189,10 @@ async def enrichment_node(state: LeadState) -> dict:
     }
 
 
-def _is_decision_maker(job_title: str, owner_name: str) -> bool:
-    """Heuristic to determine if contact is likely owner/decision maker."""
+def _is_decision_maker(job_title: str, target_keywords: list[str]) -> bool:
+    """Heuristic to determine if contact matches the dynamic target persona list."""
     if not job_title:
         return False
 
-    decision_keywords = [
-        "owner",
-        "ceo",
-        "founder",
-        "president",
-        "principal",
-        "managing partner",
-        "executive",
-    ]
-
     job_lower = job_title.lower()
-    return any(keyword in job_lower for keyword in decision_keywords)
+    return any(keyword.lower() in job_lower for keyword in target_keywords)

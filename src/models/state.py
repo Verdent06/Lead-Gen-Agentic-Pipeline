@@ -33,6 +33,12 @@ class LeadState(TypedDict, total=False):
 
     investment_thesis: Optional[str]
     """Buyer/investor thesis passed to Node 2 to shape dynamic signal extraction"""
+    
+    target_decision_makers: Optional[List[str]]
+    """Dynamic list of target personas (e.g., ['HR', 'Human Resources', 'Talent'] or ['CEO', 'Owner'])"""
+
+    industry_definition: Optional[str]
+    """Dynamic definition of the target industry to replace hardcoded checks"""
 
     # === Node 1: Discovery & State Registry Check ===
     registry_search_query: Optional[str]
