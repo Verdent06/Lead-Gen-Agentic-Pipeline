@@ -1,11 +1,12 @@
 import asyncio
-import json
 from typing import List, Dict
 from pydantic import BaseModel
-from src.services.crawl4ai_service import crawl_website  # Assuming this exists based on your stack
-from src.services.llm_service import get_llm_response    # Assuming this exists based on your stack
-from src.graph import app  # Your compiled LangGraph instance
+from src.services.crawl4ai_service import get_crawl4ai_service
+from src.services.llm_service import get_llm_service
+from src.graph import build_graph
 from src.models.state import LeadState
+
+graph = build_graph()
 
 # Define the schema for our LLM to strictly output the directory list
 class ClientDirectory(BaseModel):
@@ -13,11 +14,17 @@ class ClientDirectory(BaseModel):
 
 async def extract_directory_clients(directory_url: str) -> List[Dict[str, str]]:
     """
-    Scrapes the directory page and uses an LLM to extract all 69+ client companies.
+    Scrapes the directory page and uses an LLM to extract all client companies.
     """
     print(f"[*] Crawling directory URL: {directory_url}")
-    # 1. Scrape the raw directory page
-    crawl_result = await crawl_website(directory_url)
+    
+    # 1. Initialize your specific crawler singleton and extract markdown
+    crawler = await get_crawl4ai_service()
+    markdown = await crawler.crawl_and_convert(directory_url)
+    
+    if not markdown:
+        print("[!] Fatal Error: Crawler returned None for the directory URL.")
+        return []
     
     # 2. Force the LLM to extract structured data
     prompt = f"""
@@ -27,11 +34,14 @@ async def extract_directory_clients(directory_url: str) -> List[Dict[str, str]]:
     If the URL is not directly available, infer it (e.g., 'Acme Corp' -> 'acmecorp.com') or leave it blank to let Tavily handle it later.
     
     Markdown:
-    {crawl_result.markdown}
+    {markdown}
     """
     
     print("[*] Extracting company nodes via LLM...")
-    response = await get_llm_response(prompt, response_model=ClientDirectory)
+    llm = await get_llm_service()
+    response = await llm.extract_structured(prompt, response_model=ClientDirectory)
+    if not response or not response.companies:
+        return []
     return response.companies
 
 async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str, str], thesis: str, personas: List[str]):
@@ -42,18 +52,28 @@ async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str
         print(f"[-] Initializing graph for: {company.get('business_name')}")
         
         # Initialize your existing state, but dynamically injected
-        initial_state = {
+        initial_state: LeadState = {
+            "query": thesis,
             "business_name": company.get("business_name"),
+            "location": company.get("location", "United States"),
             "website_url": company.get("website_url"),
-            "industry_definition": "Look for evidence that they use workforce software (e.g., Workday, SAP, UKG, Dayforce) in their careers page or software stack.",
+            "industry_definition": (
+                "Look for evidence that they use workforce software "
+                "(e.g., Workday, SAP, UKG, Dayforce) in their careers page or software stack."
+            ),
             "investment_thesis": thesis,
             "target_decision_makers": personas,
-            "should_continue": True # Bypass initial Tavily discovery if we already have the URL
+            "execution_log": ["Orchestrator campaign started"],
+            "node_timestamps": {},
+            "errors_encountered": [],
+            "should_continue": True,
+            "website_crawl_success": False,
+            "enrichment_success": False,
+            "consensus_passed": False,
         }
-        
+
         try:
-            # Execute your LangGraph pipeline asynchronously
-            result = await app.ainvoke(initial_state)
+            result = await graph.ainvoke(initial_state)
             print(f"[+] Successfully processed: {company.get('business_name')} - Found {len(result.get('enriched_contacts', []))} contacts")
             return result
         except Exception as e:

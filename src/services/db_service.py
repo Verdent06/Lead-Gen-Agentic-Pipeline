@@ -1,7 +1,7 @@
 """Asynchronous PostgreSQL data access via asyncpg + pgvector."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import asyncpg
 from pgvector.asyncpg import register_vector
@@ -58,6 +58,38 @@ class DatabaseService:
         except Exception:
             logger.exception("Failed to initialize database connection pool")
             raise
+
+    async def close_pool(self) -> None:
+        """Close the connection pool gracefully."""
+        if self._pool is None:
+            return
+        await self._pool.close()
+        self._pool = None
+        logger.info("Database connection pool closed")
+
+    async def fetch_all_leads(self) -> list[dict[str, Any]]:
+        """Return all rows from target_entities (embeddings omitted for payload size)."""
+        if self._pool is None:
+            raise RuntimeError("Database pool not initialized; call init_pool() first")
+
+        query = """
+            SELECT id, url, company_name, raw_content, scraped_at
+            FROM target_entities
+            ORDER BY scraped_at DESC NULLS LAST, id DESC
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query)
+
+        return [
+            {
+                "id": row["id"],
+                "url": row["url"],
+                "company_name": row["company_name"],
+                "raw_content": row["raw_content"],
+                "scraped_at": row["scraped_at"],
+            }
+            for row in rows
+        ]
 
     async def insert_target_entity(
         self,
