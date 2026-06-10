@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import re
 import sys
 from typing import List, Dict
 from pydantic import BaseModel
@@ -8,7 +10,9 @@ from src.graph import build_graph
 from src.models.state import LeadState
 from src.models.schemas import FinalLeadOutput
 from src.services.db_service import DatabaseService
-from src.main import persist_qualified_target_entities
+from src.main import normalize_url, _resolve_entity_url, _contacts_for_db
+
+logger = logging.getLogger(__name__)
 
 graph = build_graph()
 
@@ -99,6 +103,68 @@ def _lead_output_from_state(final_state: LeadState) -> FinalLeadOutput:
         embedding=embedding,
     )
 
+def _orchestrator_entity_url(lead: FinalLeadOutput) -> str:
+    """Resolve a stable URL key for DB upsert; fall back to a name-based slug if needed."""
+    resolved_url = _resolve_entity_url(lead)
+    if resolved_url:
+        url = normalize_url(resolved_url)
+        if url:
+            return url
+
+    slug = re.sub(r"[^a-z0-9]+", "-", (lead.business_name or "unknown").lower()).strip("-")
+    return f"orchestrator/{slug or 'unknown'}"
+
+
+async def _persist_orchestrator_lead(db: DatabaseService, lead: FinalLeadOutput) -> bool:
+    """Upsert one orchestrator lead into PostgreSQL (no consensus or embedding required)."""
+    url = _orchestrator_entity_url(lead)
+    company_name = (lead.business_name or "").strip() or "Unknown"
+    raw_content = (lead.raw_content or "").strip()
+    contact_count = len(lead.enriched_contacts or [])
+
+    if not raw_content:
+        raw_content = (
+            f"Orchestrator campaign lead. Contacts found: {contact_count}."
+        )
+
+    primary_contact, all_contacts = _contacts_for_db(lead)
+
+    await db.insert_target_entity(
+        url=url,
+        company_name=company_name,
+        raw_content=raw_content,
+        embedding=lead.embedding,
+        primary_contact=primary_contact,
+        all_contacts=all_contacts,
+    )
+    return True
+
+
+async def persist_orchestrator_leads(
+    db: DatabaseService, leads: list[FinalLeadOutput]
+) -> int:
+    """Persist every orchestrator lead that completed the graph, regardless of enrichment results."""
+    if not leads:
+        logger.info("No orchestrator leads to persist to PostgreSQL")
+        return 0
+
+    insert_jobs = [_persist_orchestrator_lead(db, lead) for lead in leads]
+    outcomes = await asyncio.gather(*insert_jobs, return_exceptions=True)
+
+    persisted = 0
+    for lead, outcome in zip(leads, outcomes):
+        if isinstance(outcome, Exception):
+            logger.error("DB persist failed for %s: %s", lead.business_name, outcome)
+        elif outcome:
+            persisted += 1
+
+    logger.info(
+        "Persisted %s/%s orchestrator leads to target_entities",
+        persisted,
+        len(leads),
+    )
+    return persisted
+
 async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str, str], thesis: str, personas: List[str]):
     """
     Runs the existing LangGraph pipeline for a single company, gated by a concurrency semaphore.
@@ -138,7 +204,7 @@ async def process_single_company(semaphore: asyncio.Semaphore, company: Dict[str
 
 async def run_campaign(is_test: bool = False):
     # Configuration for the workforce consultant client
-    DIRECTORY_URL = "https://workforcesoftware.com/customers/" # REPLACE WITH ACTUAL URL
+    DIRECTORY_URL = "https://workforcesoftware.com/customers/"
     INVESTMENT_THESIS = "Looking for companies that have recently deployed workforce software and might need post-go-live managed services."
     TARGET_PERSONAS = ["HR", "Human Resources", "Talent Acquisition", "CHRO", "Director of People"]
     
@@ -168,9 +234,9 @@ async def run_campaign(is_test: bool = False):
     # Compile final results for the client
     successful_runs = [res for res in results if res is not None]
     leads = [_lead_output_from_state(state) for state in successful_runs]
-    persisted = await persist_qualified_target_entities(db, leads)
+    persisted = await persist_orchestrator_leads(db, leads)
     print(f"[*] Campaign Complete. Successfully enriched {len(successful_runs)} out of {len(target_companies)} companies.")
-    print(f"[PERSIST] Upserted {persisted} qualified target entities to PostgreSQL")
+    print(f"[PERSIST] Upserted {persisted} target entities to PostgreSQL")
 
 if __name__ == "__main__":
     # Check if 'test' was passed as a command line argument

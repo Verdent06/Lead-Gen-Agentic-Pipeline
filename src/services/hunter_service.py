@@ -44,8 +44,8 @@ class HunterService:
                 # First, search for domain info
                 params = {
                     "domain": domain,
-                    "limit": 100,
-                    "department": "hr",
+                    "limit": 10,
+                    #"department": "hr", TODO: Remove this once we have a better way to filter contacts
                 }
 
                 response = await client.get(
@@ -57,7 +57,8 @@ class HunterService:
                 response.raise_for_status()
 
                 result = response.json()
-                contacts = result.get("data", {}).get("employees", [])
+                contacts = result.get("data", {}).get("emails", [])
+
 
                 # Filter and enrich contacts
                 enriched_contacts = []
@@ -66,11 +67,11 @@ class HunterService:
                         {
                             "first_name": contact.get("first_name"),
                             "last_name": contact.get("last_name"),
-                            "email": contact.get("email"),
-                            "email_confidence": contact.get("confidence"),
-                            "job_title": contact.get("title"),
+                            "email": contact.get("value"),
+                            "email_confidence": contact.get("confidence") / 100,
+                            "job_title": contact.get("position"),
                             "department": contact.get("department"),
-                            "linkedin_profile": contact.get("linkedin_url"),
+                            "linkedin_profile": contact.get("linkedin"),
                         }
                     )
 
