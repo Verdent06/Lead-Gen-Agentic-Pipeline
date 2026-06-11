@@ -2,11 +2,11 @@
 
 import logging
 from langgraph.graph import StateGraph, START, END
-from src.models.state import LeadState
-from src.nodes.discovery import discovery_node
-from src.nodes.web_crawler import web_crawler_node
-from src.nodes.consensus import consensus_node
-from src.nodes.enrichment import enrichment_node
+from src.agent.state import LeadState
+from src.agent.nodes.discovery import discovery_node
+from src.agent.nodes.web_crawler import web_crawler_node
+from src.agent.nodes.consensus import consensus_node
+from src.agent.nodes.enrichment import enrichment_node
 
 logger = logging.getLogger(__name__)
 

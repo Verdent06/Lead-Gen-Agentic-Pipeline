@@ -1,5 +1,5 @@
 """Data models and schemas for the sourcing agent pipeline."""
-from src.models.state import LeadState
+from src.agent.state import LeadState
 from src.models.schemas import (
     RegistryVerification,
     WebsiteDiscovery,

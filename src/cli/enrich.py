@@ -6,11 +6,11 @@ from typing import List, Dict
 from pydantic import BaseModel
 from src.services.crawl4ai_service import get_crawl4ai_service
 from src.services.llm_service import get_llm_service
-from src.graph import build_graph
-from src.models.state import LeadState
+from src.agent.graph import build_graph
+from src.agent.state import LeadState
 from src.models.schemas import FinalLeadOutput
 from src.services.db_service import DatabaseService
-from src.main import normalize_url, _resolve_entity_url, _contacts_for_db
+from src.cli.discover import normalize_url, _resolve_entity_url, _contacts_for_db
 
 logger = logging.getLogger(__name__)
 

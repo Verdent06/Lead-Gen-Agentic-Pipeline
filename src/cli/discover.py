@@ -7,9 +7,9 @@ import re
 import time
 from urllib.parse import urlparse
 from typing import Any, Optional
-from src.models.state import LeadState
+from src.agent.state import LeadState
 from src.models.schemas import FinalLeadOutput
-from src.graph import build_graph
+from src.agent.graph import build_graph
 from src.services.db_service import DatabaseService
 from pydantic import BaseModel, Field
 from typing import List

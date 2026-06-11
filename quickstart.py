@@ -44,7 +44,7 @@ async def quick_start():
     # Step 3: Import models
     print("\n[3] Importing models...")
     try:
-        from src.models.state import LeadState
+        from src.agent.state import LeadState
         from src.models.schemas import (
             RegistryVerification,
             WebsiteSignals,
