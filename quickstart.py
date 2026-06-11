@@ -32,7 +32,7 @@ async def quick_start():
     # Step 2: Validate config
     print("\n[2] Loading configuration...")
     try:
-        from src.config import Config
+        from src.core.config import Config
         Config.validate()
         print("    ✓ Configuration valid")
         print(f"    - USE_MOCKS: {Config.USE_MOCKS}")
@@ -60,7 +60,7 @@ async def quick_start():
     # Step 4: Build graph
     print("\n[4] Building LangGraph...")
     try:
-        from src.graph import build_graph
+        from src.agent.graph import build_graph
         graph = build_graph()
         print("    ✓ Graph compiled successfully")
     except Exception as e:
@@ -72,7 +72,7 @@ async def quick_start():
     print("    (This uses hardcoded mock responses, no real API calls)")
 
     try:
-        from src.main import run_sourcing_agent
+        from src.cli.discover import run_sourcing_agent
 
         # Force mock mode
         os.environ["USE_MOCKS"] = "true"

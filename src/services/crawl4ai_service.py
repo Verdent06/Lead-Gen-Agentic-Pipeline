@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as html_to_markdown
 from playwright.async_api import async_playwright
 
-from src.config import Config
+from src.core.config import Config
 
 logger = logging.getLogger(__name__)
 
