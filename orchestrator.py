@@ -127,14 +127,16 @@ async def _persist_orchestrator_lead(db: DatabaseService, lead: FinalLeadOutput)
             f"Orchestrator campaign lead. Contacts found: {contact_count}."
         )
 
-    primary_contact, all_contacts = _contacts_for_db(lead)
+    primary = lead.primary_contact.model_dump() if lead.primary_contact else None
+    all_contacts = [c.model_dump() for c in lead.enriched_contacts] if lead.enriched_contacts else None
+
 
     await db.insert_target_entity(
         url=url,
         company_name=company_name,
         raw_content=raw_content,
         embedding=lead.embedding,
-        primary_contact=primary_contact,
+        primary_contact=primary,
         all_contacts=all_contacts,
     )
     return True

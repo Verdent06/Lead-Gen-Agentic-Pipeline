@@ -33,7 +33,7 @@ class LeadState(TypedDict, total=False):
 
     investment_thesis: Optional[str]
     """Buyer/investor thesis passed to Node 2 to shape dynamic signal extraction"""
-    
+
     target_decision_makers: Optional[List[str]]
     """Dynamic list of target personas (e.g., ['HR', 'Human Resources', 'Talent'] or ['CEO', 'Owner'])"""
 
@@ -100,6 +100,9 @@ class LeadState(TypedDict, total=False):
 
     enrichment_error: Optional[str]
     """Error message if enrichment failed"""
+
+    primary_contact: Optional[HunterContact]
+    """The identified owner or decision maker from the enriched contacts"""
 
     # === Execution Metadata ===
     execution_log: Annotated[List[str], operator.add]

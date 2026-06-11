@@ -31,6 +31,8 @@ class LeadRecord(BaseModel):
     id: int
     url: str
     company_name: Optional[str] = None
+    primary_contact: Optional[dict] = None
+    all_contacts: Optional[list[dict]] = None
     raw_content: Optional[str] = None
     scraped_at: Optional[datetime] = None
 

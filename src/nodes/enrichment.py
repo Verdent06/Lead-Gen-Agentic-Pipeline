@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 async def enrichment_node(state: LeadState) -> dict:
+
     """
     Node 4: Enrichment with Hunter.io.
 
@@ -25,7 +26,7 @@ async def enrichment_node(state: LeadState) -> dict:
         Updated state dict with enriched contacts
     """
     start_time = time.time()
-
+    
     target_personas = state.get("target_decision_makers", [
             "owner", "ceo", "founder", "president", "principal", "managing partner"
         ])
@@ -154,6 +155,7 @@ async def enrichment_node(state: LeadState) -> dict:
                         ),
                         source="hunter.io",
                     )
+
                     enriched_contacts.append(hunter_contact)
 
                 # Identify primary contact (owner/CEO if available)

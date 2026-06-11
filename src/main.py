@@ -439,6 +439,17 @@ def _resolve_entity_url(lead: FinalLeadOutput) -> Optional[str]:
     return None
 
 
+def _contacts_for_db(lead: FinalLeadOutput) -> tuple[Optional[dict], Optional[list[dict]]]:
+    """Serialize primary and all enriched contacts for JSONB persistence."""
+    primary = lead.primary_contact.model_dump() if lead.primary_contact else None
+    all_contacts = (
+        [contact.model_dump() for contact in lead.enriched_contacts]
+        if lead.enriched_contacts
+        else None
+    )
+    return primary, all_contacts
+
+
 def normalize_url(url: str) -> str:
     """Canonical URL key for DB upserts (protocol/www/trailing slash insensitive)."""
     if url is None or not str(url).strip():
@@ -489,11 +500,15 @@ async def _persist_target_entity(db: DatabaseService, lead: FinalLeadOutput) -> 
         )
         return False
 
+    primary_contact, all_contacts = _contacts_for_db(lead)
+
     await db.insert_target_entity(
         url=url,
         company_name=company_name,
         raw_content=raw_content,
         embedding=embedding,
+        primary_contact=primary_contact,
+        all_contacts=all_contacts,
     )
     return True
 
