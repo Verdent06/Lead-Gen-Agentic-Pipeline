@@ -15,4 +15,4 @@ CREATE TABLE IF NOT EXISTS target_entities (
 ALTER TABLE target_entities ADD COLUMN IF NOT EXISTS primary_contact JSONB;
 ALTER TABLE target_entities ADD COLUMN IF NOT EXISTS all_contacts JSONB;
 
-CREATE INDEX ON target_entities USING hnsw (embedding vector_cosine_ops);
+-- CREATE INDEX ON target_entities USING hnsw (embedding vector_cosine_ops);

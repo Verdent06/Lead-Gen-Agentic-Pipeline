@@ -1,19 +1,39 @@
-version: "3.8"
-
 services:
   db:
     image: ankane/pgvector:latest
-    container_name: ma_postgres_db
-    restart: always
+    container_name: lead_gen_db
     environment:
-      POSTGRES_USER: vedant
-      POSTGRES_PASSWORD: rootpassword
-      POSTGRES_DB: deal_sourcing_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: lead_gen
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./infra/migrations:/docker-entrypoint-initdb.d # Auto-runs any setup SQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lead_gen"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: lead_gen_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.local
+    environment:
+      - DB_URL=postgresql+asyncpg://postgres:postgrespassword@db:5432/lead_gen
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgrespassword
+      - DB_NAME=lead_gen
 
 volumes:
   postgres_data:

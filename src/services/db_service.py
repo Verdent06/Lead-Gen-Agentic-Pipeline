@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Any, Optional
 
 import asyncpg
@@ -13,20 +14,12 @@ logger = logging.getLogger(__name__)
 class DatabaseService:
     """Async connection pool for deal-sourcing PostgreSQL with pgvector support."""
 
-    def __init__(
-        self,
-        *,
-        user: str = "vedant",
-        password: str = "rootpassword",
-        database: str = "deal_sourcing_db",
-        host: str = "localhost",
-        port: int = 5432,
-    ) -> None:
-        self._user = user
-        self._password = password
-        self._database = database
-        self._host = host
-        self._port = port
+    def __init__(self) -> None:
+        self._host = os.getenv("DB_HOST", "db")
+        self._port = int(os.getenv("DB_PORT", "5432"))
+        self._user = os.getenv("DB_USER", "postgres")
+        self._password = os.getenv("DB_PASSWORD", "postgrespassword")
+        self._database = os.getenv("DB_NAME", "lead_gen")
         self._pool: Optional[asyncpg.Pool] = None
 
     async def _init_connection(self, conn: asyncpg.Connection) -> None:
@@ -34,18 +27,9 @@ class DatabaseService:
         await register_vector(conn)
 
     async def init_pool(self) -> None:
-        """Create the async connection pool with pgvector registered on every connection."""
         if self._pool is not None:
-            logger.debug("Database pool already initialized")
             return
 
-        logger.info(
-            "Initializing asyncpg pool host=%s port=%s db=%s user=%s",
-            self._host,
-            self._port,
-            self._database,
-            self._user,
-        )
         try:
             self._pool = await asyncpg.create_pool(
                 user=self._user,
@@ -54,6 +38,7 @@ class DatabaseService:
                 host=self._host,
                 port=self._port,
                 init=self._init_connection,
+                ssl=False,              # ← fixes the SSL crash
             )
             logger.info("Database connection pool ready")
         except Exception:
