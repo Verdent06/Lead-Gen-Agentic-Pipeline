@@ -10,12 +10,18 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/migrations:/docker-entrypoint-initdb.d # Auto-runs any setup SQL
+      - ./infra/migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d lead_gen"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: lead_gen_redis
+    ports:
+      - "6379:6379"
 
   api:
     build: .
@@ -25,10 +31,33 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - .env.local
     environment:
       - DB_URL=postgresql+asyncpg://postgres:postgrespassword@db:5432/lead_gen
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgrespassword
+      - DB_NAME=lead_gen
+
+  worker:
+    build: .
+    container_name: lead_gen_worker
+    command: celery -A src.core.celery_app.celery_app worker --loglevel=info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - .env.local
+    environment:
+      - DB_URL=postgresql+asyncpg://postgres:postgrespassword@db:5432/lead_gen
+      - REDIS_URL=redis://redis:6379/0
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=postgres

@@ -1,16 +1,16 @@
-"""FastAPI REST API for the Lead-Gen agentic pipeline."""
-
 import logging
 from datetime import datetime
 from typing import Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from celery.result import AsyncResult
+from src.core.celery_app import celery_app
+from src.agent.tasks import process_lead_task
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.services.db_service import DatabaseService
-from src.agent.graph import build_graph
-from src.agent.state import LeadState
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize the AI Graph once at startup
-graph = build_graph()
-
 
 # ==========================================
 # SCHEMA DEFINITIONS
@@ -55,6 +51,17 @@ class CompanyEnrichmentRequest(BaseModel):
     investment_thesis: str = Field(..., description="The contextual goal of the campaign")
     target_personas: List[str] = Field(default=["HRIS", "HRIT", "Enterprise Applications"])
 
+class JobAccepted(BaseModel):
+    job_id: str
+    status: str = "queued"
+    message: str
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: str           # queued | started | success | failure | retry
+    result: Optional[dict] = None
+    error: Optional[str] = None
+
 
 # ==========================================
 # LIFECYCLE EVENTS
@@ -71,56 +78,72 @@ def _get_db() -> DatabaseService:
 
 
 # ==========================================
-# AGENTIC ENDPOINTS (THE ENGINE)
+# AGENTIC ENDPOINTS
 # ==========================================
 
-@app.post("/api/v1/enrich-company")
-async def enrich_company_endpoint(payload: CompanyEnrichmentRequest):
+@app.post("/api/v1/enrich-company", response_model=JobAccepted, status_code=202)
+async def enrich_company_endpoint(payload: CompanyEnrichmentRequest) -> JobAccepted:
     """
-    Executes the LangGraph pipeline for a single company dynamically.
+    Non-blocking. Drops the job onto the Redis queue and returns
+    a job_id immediately. The client should poll GET /api/v1/jobs/{job_id}.
+    
+    HTTP 202 Accepted is the correct status code here — the request
+    was accepted but processing has not completed.
     """
-    initial_state: LeadState = {
-        "query": payload.investment_thesis,
-        "business_name": payload.business_name,
-        "location": "United States", 
-        "website_url": payload.website_url,
-        "industry_definition": "Determined via AI analysis",
-        "investment_thesis": payload.investment_thesis,
-        "target_decision_makers": payload.target_personas,
-        "direct_to_enrichment": True,
-        "execution_log": ["API request received"],
-        "node_timestamps": {},
-        "errors_encountered": [],
-        "should_continue": True,
-        "website_crawl_success": False,
-        "enrichment_success": False,
-        "consensus_passed": False,
-        "enrichment_data": [],
-        "primary_contact": None
+    task = process_lead_task.delay(
+        payload.business_name,
+        payload.investment_thesis,
+        payload.website_url,
+        payload.target_personas,
+    )
+    logger.info("[api] Queued lead enrichment job_id=%s company=%s", task.id, payload.business_name)
+    return JobAccepted(
+        job_id=task.id,
+        status="queued",
+        message=f"Job accepted. Poll /api/v1/jobs/{task.id} for status.",
+    )
+
+
+@app.get("/api/v1/jobs/{job_id}", response_model=JobStatus)
+async def get_job_status(job_id: str) -> JobStatus:
+    """
+    Poll endpoint for Celery task status.
+
+    Celery states map to our API response as follows:
+      PENDING  → queued   (task not yet picked up by a worker)
+      STARTED  → started  (worker has begun execution)
+      SUCCESS  → success  (result is available)
+      FAILURE  → failure  (terminal error, check .error field)
+      RETRY    → retry    (transient failure, worker will re-attempt)
+    """
+    result = AsyncResult(job_id, app=celery_app)
+    status_map = {
+        "PENDING": "queued",
+        "STARTED": "started",
+        "SUCCESS": "success",
+        "FAILURE": "failure",
+        "RETRY": "retry",
     }
+    api_status = status_map.get(result.status, result.status.lower())
 
-    try:
-        logger.info(f"[*] API triggered graph execution for: {payload.business_name}")
-        final_state = await graph.ainvoke(initial_state)
-        
-        # Note: In a true production app, you would also call db.insert_target_entity here
-        # to ensure the API execution actually saves to the database immediately.
-        
-        return {
-            "status": "success",
-            "business_name": payload.business_name,
-            "resolved_url": final_state.get("website_url"),
-            "contacts_found": len(final_state.get("enrichment_data", [])),
-            "primary_contact": final_state.get("primary_contact"),
-        }
-        
-    except Exception as e:
-        logger.error(f"Graph execution failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Graph execution failed: {str(e)}")
+    task_result = None
+    error_msg = None
+
+    if result.successful():
+        task_result = result.result  # the dict returned by process_lead_task
+    elif result.failed():
+        error_msg = str(result.result)  # result.result holds the exception on failure
+
+    return JobStatus(
+        job_id=job_id,
+        status=api_status,
+        result=task_result,
+        error=error_msg,
+    )
 
 
 # ==========================================
-# DATA RETRIEVAL ENDPOINTS (CRUD)
+# DATA RETRIEVAL ENDPOINTS
 # ==========================================
 
 @app.get("/leads", response_model=LeadsResponse)
@@ -133,7 +156,7 @@ async def get_leads() -> LeadsResponse:
         return LeadsResponse(leads=leads, count=len(leads))
     except Exception as e:
         logger.error("Failed to fetch leads: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch leads from database: {e}") from e
+        raise HTTPException(status_code=500, detail=f"Failed to fetch leads: {e}") from e
 
 
 @app.post("/api/search")

@@ -107,17 +107,16 @@ class DatabaseService:
             raise RuntimeError("Database pool not initialized; call init_pool() first")
 
         query = """
-            INSERT INTO target_entities (
-                url, company_name, primary_contact, all_contacts, raw_content, embedding
-            )
-            VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6)
-            ON CONFLICT (url) DO UPDATE SET
+            INSERT INTO target_entities (url, company_name, primary_contact, all_contacts, raw_content, embedding)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (url) 
+            DO UPDATE SET
                 company_name = EXCLUDED.company_name,
                 primary_contact = EXCLUDED.primary_contact,
                 all_contacts = EXCLUDED.all_contacts,
                 raw_content = EXCLUDED.raw_content,
                 embedding = EXCLUDED.embedding,
-                scraped_at = CURRENT_TIMESTAMP
+                scraped_at = NOW();
         """
 
         primary_json = json.dumps(primary_contact) if primary_contact is not None else None

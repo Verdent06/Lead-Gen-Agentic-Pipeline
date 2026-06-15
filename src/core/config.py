@@ -32,6 +32,9 @@ class Config:
     MATCH_CONFIDENCE_THRESHOLD: float = float(
         os.getenv("MATCH_CONFIDENCE_THRESHOLD", "0.85")
     )
+    
+    # Redis Configuration
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
     # Feature Flags
     USE_MOCKS: bool = os.getenv("USE_MOCKS", "false").lower() == "true"
