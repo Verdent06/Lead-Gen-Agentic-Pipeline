@@ -78,5 +78,245 @@
       "expected_min_score": 0,
       "expected_is_target_industry": true
     }
+  },
+  {
+    "case_id": "manufacturer_carrier_global",
+    "description": "Archetype: The Manufacturer. Carrier Global manufactures HVAC equipment; it does not operate as an independent B2B wholesale distributor to contractors.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Florida. Do NOT include merged companies.",
+      "business_name": "Carrier Global Corporation",
+      "location": "Palm Beach Gardens, Florida",
+      "website_url": "https://www.corporate.carrier.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "manufacturer_trane_technologies",
+    "description": "Archetype: The Manufacturer. Trane Technologies is an OEM/building-products manufacturer, not an independent HVAC wholesale distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in North Carolina. Do NOT include merged companies.",
+      "business_name": "Trane Technologies",
+      "location": "Davidson, North Carolina",
+      "website_url": "https://www.tranetechnologies.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "residential_installer_bobs_heating",
+    "description": "Archetype: The Residential Installer. Local contractor-facing homeowners for installs and service, not a B2B HVAC wholesale distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. Do NOT include merged companies.",
+      "business_name": "Bob's Heating and Air Conditioning",
+      "location": "Columbus, Ohio",
+      "website_url": "https://www.bobsheatingandair.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "hvac_saas_servicetitan",
+    "description": "Archetype: HVAC SaaS/Software. ServiceTitan sells field-service software to contractors; it is not an HVAC parts distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in California. Do NOT include merged companies.",
+      "business_name": "ServiceTitan",
+      "location": "Glendale, California",
+      "website_url": "https://www.servicetitan.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "hvac_saas_fieldedge",
+    "description": "Archetype: HVAC SaaS/Software (variant). FieldEdge is contractor management software, not a wholesale HVAC distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Florida. Do NOT include merged companies.",
+      "business_name": "FieldEdge",
+      "location": "Fort Myers, Florida",
+      "website_url": "https://www.fieldedge.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "merged_watsco_carrier_enterprise",
+    "description": "Archetype: Merged/Acquired Entity. Carrier Enterprise is a Watsco company — not an independent distributor per thesis.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Florida. Do NOT include merged companies.",
+      "business_name": "Carrier Enterprise",
+      "location": "Orlando, Florida",
+      "website_url": "https://www.carrierenterprise.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "merged_ferguson_enterprises",
+    "description": "Archetype: Merged/Acquired Entity (variant). Ferguson is a national roll-up platform, not an independent regional HVAC distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Virginia. Do NOT include merged companies.",
+      "business_name": "Ferguson Enterprises",
+      "location": "Newport News, Virginia",
+      "website_url": "https://www.ferguson.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "pe_holding_l_squared_capital",
+    "description": "Archetype: Holding Company/Private Equity. L Squared Capital Partners is a PE firm listing HVAC distributors in its portfolio — not a distributor itself.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Illinois. Do NOT include merged companies.",
+      "business_name": "L Squared Capital Partners",
+      "location": "Chicago, Illinois",
+      "website_url": "https://www.l-squared.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "perfect_localized_famous_supply_ohio",
+    "description": "Archetype: Perfect Localized Target. Famous Supply is an independent Ohio-based HVAC/plumbing wholesaler with a localized branch footprint.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. Do NOT include merged companies.",
+      "business_name": "Famous Supply",
+      "location": "Akron, Ohio",
+      "website_url": "https://www.famous-supply.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": true,
+      "expected_min_score": 70,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "perfect_localized_sigler_texas",
+    "description": "Archetype: Perfect Localized Target (variant). Sigler is an independent Texas HVACR wholesale distributor serving contractor accounts.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Texas. Do NOT include merged companies.",
+      "business_name": "Sigler Distributors",
+      "location": "Houston, Texas",
+      "website_url": "https://www.sigler.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": true,
+      "expected_min_score": 70,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "perfect_localized_re_michel_virginia",
+    "description": "Archetype: Perfect Localized Target (variant). R.E. Michel is an independent Mid-Atlantic HVAC wholesale distributor with regional branches.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Virginia. Do NOT include merged companies.",
+      "business_name": "R.E. Michel Company",
+      "location": "Richmond, Virginia",
+      "website_url": "https://www.remichel.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": true,
+      "expected_min_score": 70,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "commercial_plumbing_core_and_main",
+    "description": "Archetype: Commercial PVF/Waterworks. Core & Main sells water, wastewater, and fire protection infrastructure. They do not distribute HVAC equipment.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Missouri. Do NOT include merged companies.",
+      "business_name": "Core & Main",
+      "location": "St. Louis, Missouri",
+      "website_url": "https://www.coreandmain.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "adjacent_electrical_graybar",
+    "description": "Archetype: Adjacent Supplier. Graybar is an electrical distributor that may reference HVAC controls/wiring but is not an HVAC wholesale distributor.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Missouri. Do NOT include merged companies.",
+      "business_name": "Graybar",
+      "location": "St. Louis, Missouri",
+      "website_url": "https://www.graybar.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "geographic_near_miss_fw_webb",
+    "description": "Archetype: Geographic Near-Miss. F.W. Webb is a massive Northeast HVAC distributor. Paired with Florida, the industry check should pass, but the geographic consensus must fail.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Florida. Do NOT include merged companies.",
+      "business_name": "F.W. Webb Company",
+      "location": "Miami, Florida",
+      "website_url": "https://www.fwwebb.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "dead_parked_domain_alpine_supply",
+    "description": "Archetype: Dead/Parked Domain. Real-sounding HVAC supply entity with a forced URL that resolves to a domain-parking/for-sale landing page — crawl should not yield distributor signals.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Colorado. Do NOT include merged companies.",
+      "business_name": "Alpine Refrigeration Supply LLC",
+      "location": "Denver, Colorado",
+      "website_url": "https://www.alpinerefrigerationsupply.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
   }
 ]
