@@ -166,8 +166,16 @@ class WebsiteSignals(BaseModel):
     )
 
     is_target_industry: bool = Field(
-        ..., 
-        description="True if the website explicitly belongs to the target industry (e.g., HVAC distribution). False if industry is irrelevant (e.g., labor union, non-HVAC business)."
+        ...,
+        description=(
+            "True ONLY if the company is an HVAC Distributor: a business that sources HVAC equipment "
+            "from manufacturers and resells it to contractors or dealers. "
+            "MUST be False for: (1) SaaS/software companies that serve HVAC contractors, "
+            "(2) Manufacturers that make HVAC equipment (e.g., Trane, Carrier, Lennox), "
+            "(3) Plumbing, Electrical, or Waterworks companies with no HVAC distribution focus, "
+            "(4) Labor unions, trade associations, or training organizations. "
+            "Serving HVAC customers does NOT qualify — the company itself must distribute HVAC equipment."
+        )
     )
 
     industry_evidence: str = Field(

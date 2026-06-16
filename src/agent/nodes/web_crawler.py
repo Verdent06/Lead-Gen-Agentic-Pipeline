@@ -92,6 +92,14 @@ Analyze the following website content for hidden business signals AND VERIFY THE
 === INDUSTRY / TECH STACK DEFINITION ===
 {industry_definition}
 
+=== EXCLUSION CRITERIA (OVERRIDE ALL OTHER SIGNALS) ===
+You MUST set `is_target_industry` to FALSE if ANY of the following conditions are true — regardless of any partial overlap with HVAC terminology:
+1. The website explicitly focuses on adjacent industries such as Plumbing, Electrical, Waterworks, or general mechanical/utility contracting with no HVAC distribution focus.
+2. The website is for a SaaS software company, field service management platform, or technology vendor — even if they specifically serve HVAC contractors.
+3. The website is for a Manufacturer (i.e., a company that MAKES HVAC equipment such as compressors, chillers, or air handlers). Manufacturers are NOT distributors. A company that designs, engineers, or produces HVAC units is NOT a distributor.
+4. The company is a labor union, trade association, training school, or advocacy organization.
+Do NOT let mentions of HVAC products, customers, or partnerships override these exclusion rules. The company itself must be an HVAC Distributor (a company that SOURCES and RESELLS HVAC equipment from manufacturers to contractors/dealers).
+
 === TARGET GEOGRAPHY ===
 {location}
 
@@ -99,14 +107,14 @@ CRITICAL GEOGRAPHIC RULE: You must cross-reference the TARGET GEOGRAPHY with the
 - Extract all US states they operate in into `operating_states`.
 - Set `operates_in_target_location` to False if the business is highly localized to an area that does NOT include the TARGET GEOGRAPHY. Set to True if it does, or if they ship nationwide.
 
-Based on this Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals to look for on this website. 
-For EACH signal, output exactly one object in the JSON field `signals` with: signal_name, detected (bool), confidence (0.0–1.0), and evidence. 
+Based on this Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals to look for on this website.
+For EACH signal, output exactly one object in the JSON field `signals` with: signal_name, detected (bool), confidence (0.0–1.0), and evidence.
 
-CRITICAL NAME EXTRACTION: Extract the ACTUAL business name as it appears in the website markdown. DO NOT use placeholder names, and DO NOT hallucinate. 
+CRITICAL NAME EXTRACTION: Extract the ACTUAL business name as it appears in the website markdown. DO NOT use placeholder names, and DO NOT hallucinate.
 
 INDUSTRY / QUALIFICATION DETERMINATION:
-- is_target_industry: Set to true ONLY if the website clearly matches the INDUSTRY / TECH STACK DEFINITION provided above.
-- industry_evidence: Quote or describe specific phrases from the website that justify your determination.
+- is_target_industry: Set to true ONLY if the website clearly matches the INDUSTRY / TECH STACK DEFINITION provided above AND passes all EXCLUSION CRITERIA above.
+- industry_evidence: Quote or describe specific phrases from the website that justify your determination. If excluding, cite which exclusion criterion applies.
 
 Also extract where applicable:
 - Business size indicators, team size hints, contact information, owner details
