@@ -81,6 +81,7 @@ async def web_crawler_node(state: LeadState) -> dict:
         # Extract dynamic state variables or fallback to defaults
         investment_thesis = (state.get("investment_thesis") or "Find strategic operational signals.").strip()
         industry_definition = (state.get("industry_definition") or "Any valid B2B business.").strip()
+        location = state.get("location") or ""
 
         extraction_prompt = f"""
 Analyze the following website content for hidden business signals AND VERIFY THE TARGET INDUSTRY/TECH STACK.
@@ -90,6 +91,13 @@ Analyze the following website content for hidden business signals AND VERIFY THE
 
 === INDUSTRY / TECH STACK DEFINITION ===
 {industry_definition}
+
+=== TARGET GEOGRAPHY ===
+{location}
+
+CRITICAL GEOGRAPHIC RULE: You must cross-reference the TARGET GEOGRAPHY with the service areas, branches, or HQ locations listed on the website.
+- Extract all US states they operate in into `operating_states`.
+- Set `operates_in_target_location` to False if the business is highly localized to an area that does NOT include the TARGET GEOGRAPHY. Set to True if it does, or if they ship nationwide.
 
 Based on this Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals to look for on this website. 
 For EACH signal, output exactly one object in the JSON field `signals` with: signal_name, detected (bool), confidence (0.0–1.0), and evidence. 

@@ -40,12 +40,14 @@ async def discovery_node(state: LeadState) -> dict:
         # Extract input parameters
         query = state.get("query", "")
         location = state.get("location", "")
+        website_url = state.get("website_url")
 
         if not business_name or not location:
             raise ValueError("business_name and location are required")
 
-        # Construct refined search query
-        registry_search_query = f"{business_name} {location} state licensing registry active business"
+        # If website is known, use it to anchor the search; otherwise just use business name
+        domain_anchor = f" {website_url}" if website_url else ""
+        registry_search_query = f"{business_name}{domain_anchor} state licensing registry active business"
         logger.info(f"[{business_name}] Searching for: {registry_search_query}")
 
         # Perform Tavily search
@@ -65,10 +67,14 @@ async def discovery_node(state: LeadState) -> dict:
         llm_service = await get_llm_service()
 
         # Format search results as text for LLM
+        known_website_line = f"Known website (anchor): {website_url}\n" if website_url else ""
         search_text = f"""
-Business: {business_name}
-Location: {location}
-Query: {query}
+Business to verify: {business_name}
+{known_website_line}
+Campaign query (context only — do NOT assume registry jurisdiction from this): {query}
+
+Extract registry facts ONLY from the search results below. Record state/city from official
+registry records for this legal entity; do not infer location from campaign geography.
 
 Search Results:
 {search_results.get('answer', '')}
@@ -82,7 +88,12 @@ Details:
         registry_data = await llm_service.extract_structured(
             prompt=search_text,
             response_model=RegistryVerification,
-            context="Extract business registry information from search results. Set confidence high (0.8-1.0) if business is clearly active and found.",
+            context=(
+                "Extract business registry information from search results only. "
+                "Set state and city from primary-source registry records for this entity, "
+                "not from campaign or query geography. "
+                "Set confidence high (0.8-1.0) if the business is clearly active and found."
+            ),
         )
 
         if registry_data:

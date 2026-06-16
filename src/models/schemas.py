@@ -175,6 +175,20 @@ class WebsiteSignals(BaseModel):
         description="Direct evidence from website text justifying the is_target_industry determination. Include specific phrases or indicators that confirm or reject HVAC distribution industry."
     )
 
+    operating_states: list[str] = Field(
+        default_factory=list,
+        description="List of US states (abbreviations) or regions the company explicitly serves based on website text.",
+    )
+
+    operates_in_target_location: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True ONLY if the website explicitly mentions serving the pipeline's target location/state, "
+            "or implies nationwide shipping. False if the website explicitly limits service to regions "
+            "that DO NOT include the target location."
+        ),
+    )
+
     extraction_confidence: float = Field(
         ...,
         ge=0.0,

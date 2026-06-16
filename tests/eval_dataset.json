@@ -1,0 +1,82 @@
+[
+  {
+    "case_id": "hvac_distributor_ideal",
+    "description": "Real Ohio HVAC wholesaler (Johnstone Supply). No website_url — Node 1 must discover it. Should pass consensus with thesis-aligned signals.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. Do NOT include merged companies. List unique entities only.",
+      "business_name": "Johnstone Supply",
+      "location": "Cleveland, Ohio",
+      "website_url": null,
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": true,
+      "expected_min_score": 70,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "phantom_company_null_resolution",
+    "description": "Catastrophically broken string that will return zero meaningful industry or text data from web searches.",
+    "inputs": {
+      "query": "Extract unique independent businesses.",
+      "business_name": "XyZ_Unresolvable_Phantom_999_LLC",
+      "location": "Toledo, Ohio",
+      "website_url": null,
+      "investment_thesis": "Looking for B2B HVAC distributors."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "wrong_industry_plumbers_union",
+    "description": "National Plumbers Union — a labor union, not an HVAC distributor. Industry gate in Node 3 should hard-fail even if registry lookup succeeds.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. Do NOT include merged companies. List unique entities only.",
+      "business_name": "United Association of Plumbers and Pipefitters",
+      "location": "Cleveland, Ohio",
+      "website_url": "https://www.ua.org",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": false
+    }
+  },
+  {
+    "case_id": "hard_geography_mismatch",
+    "description": "Strictly localized Midwest distributor (Duncan Supply) paired with Hawaii. Crawler must succeed, industry must pass, but geographic consensus must fail.",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Hawaii. Do NOT include merged companies.",
+      "business_name": "Duncan Supply Company",
+      "location": "Honolulu, Hawaii",
+      "website_url": "https://www.duncansupply.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": true
+    }
+  },
+  {
+    "case_id": "name_mismatch_forced_website",
+    "description": "Deliberately wrong business_name paired with a known HVAC distributor website. Registry name vs website name should fall below MIN_NAME_MATCH (0.60).",
+    "inputs": {
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Ohio. Do NOT include merged companies. List unique entities only.",
+      "business_name": "Totally Different Company Inc",
+      "location": "Columbus, Ohio",
+      "website_url": "https://www.johnstonesupply.com",
+      "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
+    },
+    "expected_outputs": {
+      "expected_consensus_passed": false,
+      "expected_min_score": 0,
+      "expected_is_target_industry": true
+    }
+  }
+]

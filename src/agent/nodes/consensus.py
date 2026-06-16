@@ -259,23 +259,69 @@ async def consensus_node(state: LeadState) -> dict:
             logger.info(f"[{business_name}] Registry status: unknown (no bonus, requires website verification)")
             execution_log.append("Registry status: unknown (no bonus applied, requires website verification)")
 
-        # === STEP 1: Name Matching ===
+        # === STEP 1: Name Matching (pipeline vs registry vs website) ===
+        pipeline_name = (state.get("business_name") or "").strip()
         registry_name = registry_data.business_name or ""
         website_name = extracted_signals.business_name_from_site or registry_data.business_name or ""
 
-        name_match = fuzzy_match(registry_name, website_name)
-        logger.info(f"[{business_name}] Name match: {registry_name} vs {website_name} = {name_match:.2f}")
-        execution_log.append(f"Name match score: {name_match:.2f}")
-
-        # === STEP 2: Location sanity (registry state vs pipeline location only) ===
-        # Street/ZIP fuzzy matching vs website was removed: HQ vs branch addresses
-        # produced false rejections. ``address_match`` is kept for the schema as 1.0
-        # when we are not using website address comparison.
-        pipeline_location = state.get("location") or ""
-        state_conflict, state_conflict_detail = _pipeline_location_state_conflict(
-            getattr(registry_data, "state", None),
-            pipeline_location,
+        match_registry_vs_site = fuzzy_match(registry_name, website_name)
+        match_pipeline_vs_registry = (
+            fuzzy_match(pipeline_name, registry_name) if pipeline_name and registry_name else 0.0
         )
+        match_pipeline_vs_website = (
+            fuzzy_match(pipeline_name, website_name) if pipeline_name and website_name else 0.0
+        )
+        # Weakest link: pipeline query must align with both verified sources.
+        name_match = min(
+            match_registry_vs_site,
+            match_pipeline_vs_registry,
+            match_pipeline_vs_website,
+        )
+        logger.info(
+            f"[{business_name}] Name match: pipeline='{pipeline_name}' | "
+            f"registry='{registry_name}' | website='{website_name}' | "
+            f"reg↔site={match_registry_vs_site:.2f} "
+            f"pipeline↔registry={match_pipeline_vs_registry:.2f} "
+            f"pipeline↔website={match_pipeline_vs_website:.2f} → final={name_match:.2f}"
+        )
+        execution_log.append(
+            f"Name match score: {name_match:.2f} "
+            f"(reg↔site={match_registry_vs_site:.2f}, "
+            f"pipeline↔reg={match_pipeline_vs_registry:.2f}, "
+            f"pipeline↔site={match_pipeline_vs_website:.2f})"
+        )
+
+        # === STEP 2: Geographic state conflict (website override or legacy registry check) ===
+        # Street/ZIP fuzzy matching vs website was removed: HQ vs branch addresses
+        # produced false rejections. When the crawler confirms target geography,
+        # registry domicile state mismatches are waived.
+        pipeline_location = state.get("location") or ""
+
+        # Evaluate Geographic State Conflict
+        state_conflict = False
+        state_conflict_detail = None
+
+        if extracted_signals.operates_in_target_location is True:
+            # Ground-Truth Override: Website explicitly confirms operations in target geography.
+            # Waive any corporate domicile (registry) mismatches.
+            logger.info(
+                f"[{business_name}] Website confirms target geography. "
+                "Bypassing registry domicile state mismatch."
+            )
+            execution_log.append(
+                "Website confirms target geography; registry domicile state check waived"
+            )
+        elif extracted_signals.operates_in_target_location is False:
+            # Handled by the hard gate below; state_conflict set for consistency.
+            state_conflict = True
+            state_conflict_detail = "Website explicitly does not operate in target location."
+        else:
+            # Fallback: crawler unsure — rely on legacy registry check
+            state_conflict, state_conflict_detail = _pipeline_location_state_conflict(
+                getattr(registry_data, "state", None),
+                pipeline_location,
+            )
+
         address_match = 1.0
         reg_st = _registry_state_abbr(getattr(registry_data, "state", None))
         loc_st = sorted(_state_abbrs_in_text(pipeline_location))
@@ -327,6 +373,74 @@ async def consensus_node(state: LeadState) -> dict:
                 "should_continue": False,
             }
 
+        # === Geographic Website Triangulation (Hard Gate) ===
+        if extracted_signals.operates_in_target_location is False:
+            geo_msg = (
+                f"Geographic mismatch: Target is {pipeline_location}, "
+                f"but site operates in {extracted_signals.operating_states}"
+            )
+            logger.warning(
+                f"[{business_name}] HARD FAIL: Website explicitly does not operate in "
+                f"target location ({pipeline_location})."
+            )
+            execution_log.append(f"REJECTED: {geo_msg}")
+
+            consensus_result = ConsensusResult(
+                lead_should_proceed=False,
+                name_match=name_match,
+                address_match=address_match,
+                address_mismatch_details=geo_msg,
+                registry_website_conflict=True,
+                conflict_description="Geographic mismatch",
+                signal_scoring={},
+                base_signal_score=0,
+                match_bonus=0,
+                final_lead_score=0,
+                drop_reason="Geographic mismatch",
+                validation_notes=geo_msg,
+                recommended_follow_up="Not in target geography - skip.",
+            )
+
+            elapsed = time.time() - start_time
+            logger.info(f"[{business_name}] Node 3 completed in {elapsed:.2f}s (geographic rejection)")
+
+            return {
+                "consensus_result": consensus_result,
+                "name_match_confidence": name_match,
+                "address_match_confidence": address_match,
+                "lead_score": 0,
+                "consensus_passed": False,
+                "dropped_reason": "Geographic mismatch",
+                "execution_log": execution_log,
+                "node_timestamps": {**state.get("node_timestamps", {}), "consensus": elapsed},
+                "should_continue": False,
+            }
+
+        # === Domain Validation (Soft Gate / Warning) ===
+        website_url = state.get("website_url")
+        if registry_data and registry_data.official_website_url and website_url:
+            reg_domain = (
+                registry_data.official_website_url.replace("https://", "")
+                .replace("http://", "")
+                .replace("www.", "")
+                .split("/")[0]
+                .lower()
+            )
+            crawl_domain = (
+                website_url.replace("https://", "")
+                .replace("http://", "")
+                .replace("www.", "")
+                .split("/")[0]
+                .lower()
+            )
+            if reg_domain and crawl_domain and reg_domain != crawl_domain:
+                logger.warning(
+                    f"[{business_name}] Domain mismatch: Registry ({reg_domain}) vs Crawled ({crawl_domain})"
+                )
+                execution_log.append(
+                    f"Domain mismatch warning: Registry ({reg_domain}) vs Crawled ({crawl_domain})"
+                )
+
         # === STEP 4: Conflict Detection ===
         registry_website_conflict = False
         conflict_description = None
@@ -337,9 +451,13 @@ async def consensus_node(state: LeadState) -> dict:
             conflict_description = f"Business name mismatch (similarity: {name_match:.2f} < {MIN_NAME_MATCH})"
             logger.warning(f"[{business_name}] {conflict_description}")
 
-        if state_conflict and state_conflict_detail:
+        if state_conflict:
             registry_website_conflict = True
-            msg = f"State/location mismatch: {state_conflict_detail}"
+            msg = (
+                f"State/location mismatch: {state_conflict_detail}"
+                if state_conflict_detail
+                else "State/location mismatch"
+            )
             if conflict_description:
                 conflict_description = f"{conflict_description}; {msg}"
             else:
