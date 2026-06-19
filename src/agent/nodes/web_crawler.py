@@ -82,9 +82,31 @@ async def web_crawler_node(state: LeadState) -> dict:
         investment_thesis = (state.get("investment_thesis") or "Find strategic operational signals.").strip()
         industry_definition = (state.get("industry_definition") or "Any valid B2B business.").strip()
         location = state.get("location") or ""
+        query = (state.get("query") or "").strip()
+
+        # Dynamically inject independence exclusion only when the query requires it
+        requires_independence = any(
+            kw in query.lower()
+            for kw in ["independent", "do not include merged", "not merged", "no mergers"]
+        )
+        independence_exclusion = ""
+        if requires_independence:
+            independence_exclusion = (
+                "\n5. The SEARCH QUERY requires 'independent' distributors AND any part of the website "
+                "(headers, footers, about pages, legal notices, or any visible text) identifies "
+                "this company as a subsidiary, division, or joint venture of a larger corporation. "
+                "Look specifically at: footer copyright lines (e.g., '© 2024 XYZ, a Watsco Company'), "
+                "about-page ownership disclosures (e.g., 'a Ferguson plc company'), "
+                "or explicit JV statements (e.g., 'a joint venture between Carrier and Watsco'). "
+                "Geographic limitations or small local footprint do NOT trigger this criterion. "
+                "Independently-owned franchise locations are NOT excluded."
+            )
 
         extraction_prompt = f"""
 Analyze the following website content for hidden business signals AND VERIFY THE TARGET INDUSTRY/TECH STACK.
+
+=== SEARCH QUERY (for context) ===
+{query}
 
 === INVESTMENT / QUALIFICATION THESIS ===
 {investment_thesis}
@@ -94,18 +116,20 @@ Analyze the following website content for hidden business signals AND VERIFY THE
 
 === EXCLUSION CRITERIA (OVERRIDE ALL OTHER SIGNALS) ===
 You MUST set `is_target_industry` to FALSE if ANY of the following conditions are true — regardless of any partial overlap with HVAC terminology:
-1. The website explicitly focuses on adjacent industries such as Plumbing, Electrical, Waterworks, or general mechanical/utility contracting with no HVAC distribution focus.
+1. EXCLUDE ONLY if HVAC equipment distribution is completely absent, OR if the company is fundamentally a non-HVAC business that mentions HVAC only in passing (e.g., a pure electrical supply house, a pure waterworks pipeline products company). DO NOT EXCLUDE a company that distributes HVAC equipment and heating/cooling products to contractor customers, even if they also distribute plumbing, hydronic, or pipe/fitting products alongside HVAC. Multi-category B2B wholesale distributors that include HVAC as a real product line — such as companies selling HVAC, plumbing, and hydronics together to trade contractors — ARE valid targets and must NOT be excluded by this criterion.
 2. The website is for a SaaS software company, field service management platform, or technology vendor — even if they specifically serve HVAC contractors.
 3. The website is for a Manufacturer (i.e., a company that MAKES HVAC equipment such as compressors, chillers, or air handlers). Manufacturers are NOT distributors. A company that designs, engineers, or produces HVAC units is NOT a distributor.
-4. The company is a labor union, trade association, training school, or advocacy organization.
+4. The company is a labor union, trade association, training school, or advocacy organization.{independence_exclusion}
 Do NOT let mentions of HVAC products, customers, or partnerships override these exclusion rules. The company itself must be an HVAC Distributor (a company that SOURCES and RESELLS HVAC equipment from manufacturers to contractors/dealers).
 
 === TARGET GEOGRAPHY ===
 {location}
 
 CRITICAL GEOGRAPHIC RULE: You must cross-reference the TARGET GEOGRAPHY with the service areas, branches, or HQ locations listed on the website.
-- Extract all US states they operate in into `operating_states`.
-- Set `operates_in_target_location` to False if the business is highly localized to an area that does NOT include the TARGET GEOGRAPHY. Set to True if it does, or if they ship nationwide.
+- Extract ALL US states they operate in into `operating_states`. Include states mentioned in: branch locations, distribution centers, service areas, "we serve..." statements, regional headings, store finders, or any geographic reference.
+- Set `operates_in_target_location` to True if: (a) the site explicitly mentions serving or having locations in the TARGET GEOGRAPHY, OR (b) the company claims multi-state, regional, or nationwide coverage that plausibly includes the TARGET GEOGRAPHY.
+- Set `operates_in_target_location` to False ONLY if the website clearly implies a geographic focus that EXCLUDES the TARGET GEOGRAPHY (e.g., "serving the Northeast only" when the target is Florida).
+- Leave as null ONLY when the website has no geographic information whatsoever.
 
 Based on this Thesis, you MUST dynamically identify 3 to 5 critical, concrete signals to look for on this website.
 For EACH signal, output exactly one object in the JSON field `signals` with: signal_name, detected (bool), confidence (0.0–1.0), and evidence.

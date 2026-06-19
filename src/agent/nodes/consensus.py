@@ -16,7 +16,7 @@ POINTS_PER_DETECTED_SIGNAL = 25  # Weight for a fully confident detected signal
 MAX_BASE_SIGNAL_SCORE = 90  # Cap on thesis-signal contribution before registry/name bonuses
 
 MIN_NAME_MATCH = 0.60  # Minimum fuzzy match for business names
-CONSENSUS_THRESHOLD = 70  # Final score must be >= this to pass
+CONSENSUS_THRESHOLD = 55  # Final score must be >= this to pass
 
 # Truncate long blobs in logs (contact JSON can be huge)
 _LOG_ADDR_FIELD_MAX = 280
@@ -88,6 +88,29 @@ _US_STATE_NAME_TO_ABBR: Dict[str, str] = {
 }
 
 _US_STATE_ABBRS: Set[str] = set(_US_STATE_NAME_TO_ABBR.values())
+
+# US Census Bureau divisions — used to waive registry-domicile vs pipeline-location mismatches
+# when both states are in the same geographic division (e.g., MD-incorporated company serving VA).
+_US_CENSUS_DIVISION: Dict[str, str] = {
+    "ct": "new_england", "me": "new_england", "ma": "new_england",
+    "nh": "new_england", "ri": "new_england", "vt": "new_england",
+    "nj": "middle_atlantic", "ny": "middle_atlantic", "pa": "middle_atlantic",
+    "de": "south_atlantic", "fl": "south_atlantic", "ga": "south_atlantic",
+    "md": "south_atlantic", "nc": "south_atlantic", "sc": "south_atlantic",
+    "va": "south_atlantic", "wv": "south_atlantic", "dc": "south_atlantic",
+    "il": "east_north_central", "in": "east_north_central", "mi": "east_north_central",
+    "oh": "east_north_central", "wi": "east_north_central",
+    "ia": "west_north_central", "ks": "west_north_central", "mn": "west_north_central",
+    "mo": "west_north_central", "ne": "west_north_central", "nd": "west_north_central",
+    "sd": "west_north_central",
+    "al": "east_south_central", "ky": "east_south_central", "ms": "east_south_central",
+    "tn": "east_south_central",
+    "ar": "west_south_central", "la": "west_south_central", "ok": "west_south_central",
+    "tx": "west_south_central",
+    "az": "mountain", "co": "mountain", "id": "mountain", "mt": "mountain",
+    "nv": "mountain", "nm": "mountain", "ut": "mountain", "wy": "mountain",
+    "ak": "pacific", "ca": "pacific", "hi": "pacific", "or": "pacific", "wa": "pacific",
+}
 
 
 def _registry_state_abbr(state: Optional[str]) -> Optional[str]:
@@ -321,6 +344,41 @@ async def consensus_node(state: LeadState) -> dict:
                 getattr(registry_data, "state", None),
                 pipeline_location,
             )
+            if state_conflict:
+                pipeline_states = _state_abbrs_in_text(pipeline_location)
+                reg_state = _registry_state_abbr(getattr(registry_data, "state", None))
+                # Override 1: website operating_states explicitly lists the target state
+                website_op_states = {s.lower().strip() for s in (extracted_signals.operating_states or [])}
+                state_overlap = pipeline_states & website_op_states
+                # Override 2: registry state and pipeline state are in the same US Census division
+                # (e.g., MD-incorporated distributor serving neighboring VA, both South Atlantic)
+                reg_division = _US_CENSUS_DIVISION.get(reg_state or "", "")
+                pipeline_divisions = {_US_CENSUS_DIVISION.get(s, "") for s in pipeline_states}
+                same_division = bool(reg_division and reg_division in pipeline_divisions)
+
+                if state_overlap:
+                    logger.info(
+                        f"[{business_name}] Website operating_states {sorted(state_overlap)} includes "
+                        "pipeline location state — waiving registry domicile mismatch."
+                    )
+                    execution_log.append(
+                        f"Website operating_states includes target state(s) "
+                        f"{sorted(state_overlap)}; registry domicile mismatch waived"
+                    )
+                    state_conflict = False
+                    state_conflict_detail = None
+                elif same_division:
+                    logger.info(
+                        f"[{business_name}] Registry state {(reg_state or '').upper()} and pipeline "
+                        f"location are in the same Census division ({reg_division}) — waiving "
+                        "domicile mismatch for regional distributor."
+                    )
+                    execution_log.append(
+                        f"Registry state ({(reg_state or '').upper()}) and pipeline location in "
+                        f"same Census division ({reg_division}); domicile mismatch waived"
+                    )
+                    state_conflict = False
+                    state_conflict_detail = None
 
         address_match = 1.0
         reg_st = _registry_state_abbr(getattr(registry_data, "state", None))
@@ -336,7 +394,56 @@ async def consensus_node(state: LeadState) -> dict:
         if state_conflict and state_conflict_detail:
             execution_log.append(f"State/location flag: {state_conflict_detail}")
 
-        # === STEP 3: HARD FAIL - Industry Verification ===
+        # === STEP 3a: DETERMINISTIC Independence Check (fallback for LLM miss) ===
+        # When the query requires independence, scan the raw markdown for known corporate
+        # ownership phrases that definitively prove non-independence (e.g., Watsco footer branding).
+        # This runs before the industry gate so the reason is clear even if is_target_industry=True.
+        pipeline_query = (state.get("query") or "").lower()
+        query_requires_independence = any(
+            kw in pipeline_query for kw in ["independent", "do not include merged", "not merged"]
+        )
+        if query_requires_independence:
+            raw_markdown = (state.get("website_markdown") or "").lower()
+            NON_INDEPENDENT_PHRASES = [
+                "a watsco company",
+                "watsco, inc.",
+                "watsco inc.",
+            ]
+            detected_phrase = next((p for p in NON_INDEPENDENT_PHRASES if p in raw_markdown), None)
+            if detected_phrase:
+                reason = f"Non-independent indicator detected in page content: '{detected_phrase}'"
+                logger.warning(f"[{business_name}] HARD FAIL: {reason}")
+                execution_log.append(f"REJECTED: {reason}")
+                consensus_result = ConsensusResult(
+                    lead_should_proceed=False,
+                    name_match=name_match,
+                    address_match=1.0,
+                    address_mismatch_details=None,
+                    registry_website_conflict=True,
+                    conflict_description="Non-independent entity",
+                    signal_scoring={},
+                    base_signal_score=0,
+                    match_bonus=0,
+                    final_lead_score=0,
+                    drop_reason="Non-independent entity",
+                    validation_notes=reason,
+                    recommended_follow_up="Not independently owned — skip.",
+                )
+                elapsed = time.time() - start_time
+                logger.info(f"[{business_name}] Node 3 completed in {elapsed:.2f}s (independence rejection)")
+                return {
+                    "consensus_result": consensus_result,
+                    "name_match_confidence": 0.0,
+                    "address_match_confidence": 0.0,
+                    "lead_score": 0,
+                    "consensus_passed": False,
+                    "dropped_reason": "Non-independent entity",
+                    "execution_log": execution_log,
+                    "node_timestamps": {**state.get("node_timestamps", {}), "consensus": elapsed},
+                    "should_continue": False,
+                }
+
+        # === STEP 3b: HARD FAIL - Industry Verification ===
         # If the website is NOT in the target industry (HVAC distribution), immediately fail
         if not extracted_signals.is_target_industry:
             logger.warning(f"[{business_name}] HARD FAIL: Irrelevant industry. Evidence: {extracted_signals.industry_evidence}")

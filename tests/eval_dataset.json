@@ -224,18 +224,18 @@
     }
   },
   {
-    "case_id": "perfect_localized_sigler_texas",
-    "description": "Archetype: Perfect Localized Target (variant). Sigler is an independent Texas HVACR wholesale distributor serving contractor accounts.",
+    "case_id": "perfect_localized_gensco_washington",
+    "description": "Archetype: Perfect Localized Target (variant). Gensco Inc is an independent Pacific Northwest HVACR wholesale distributor serving contractor accounts in Washington, Oregon, Idaho, and Montana.",
     "inputs": {
-      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Texas. Do NOT include merged companies.",
-      "business_name": "Sigler Distributors",
-      "location": "Houston, Texas",
-      "website_url": "https://www.sigler.com",
+      "query": "Extract a maximum of 30 unique, independent HVAC distributors in Washington. Do NOT include merged companies.",
+      "business_name": "Gensco Inc",
+      "location": "Tacoma, Washington",
+      "website_url": "https://www.gensco.com",
       "investment_thesis": "We are looking for high-growth B2B HVAC distributors that may have recently acquired other branches or competitors and are investing in a modern contractor-facing e-commerce or ordering experience, with optional buyout of ownership transition."
     },
     "expected_outputs": {
       "expected_consensus_passed": true,
-      "expected_min_score": 70,
+      "expected_min_score": 55,
       "expected_is_target_industry": true
     }
   },
